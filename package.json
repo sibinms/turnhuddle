@@ -4,6 +4,7 @@
   "description": "Claude Code and Codex in one chat: Claude proposes, Codex reviews, and they keep going until both agree.",
   "version": "0.2.0",
   "publisher": "turnhuddle",
+  "license": "MIT",
   "icon": "media/icon.png",
   "categories": [
     "AI",
@@ -41,7 +42,7 @@
       },
       {
         "command": "turnhuddle.start",
-        "title": "Start Claude \u2194 Codex Conversation",
+        "title": "Start Claude ↔ Codex Conversation",
         "category": "Turnhuddle"
       },
       {
