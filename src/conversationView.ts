@@ -1,0 +1,373 @@
+// Pure view-model for the Turnhuddle chat panel. No VS Code imports: unit-tested with Node alone.
+import type { Message, Progress, RoundOutcome, Verdict } from './bridge';
+import { escapeHtml, renderMarkdown } from './markdown';
+export { escapeHtml };
+export type Status = 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
+export type FinalStatus = Exclude<Status, 'idle' | 'running'>;
+export type Role = Message['role'];
+export interface ViewMessage { role: Role; content: string; receivedAt: string; verdict?: Verdict }
+/** Text streamed so far by the agent whose turn is running, plus its latest activity note. Cleared when the message lands. */
+export interface PartialMessage { role: Exclude<Role, 'user'>; text: string; activity?: string }
+/** The CLI session a conversation was continued from (see "Continue from" in the README). */
+export interface Origin { provider: 'claude' | 'codex'; sessionId: string; title: string }
+/** CLI session ids each agent keeps for this conversation, so later turns resume instead of replaying. */
+export type AgentSessions = Partial<Record<'claude' | 'codex', string>>;
+/** The conversation shown in the panel. All times are ISO strings. */
+export interface ConversationState { status: Status; task?: string; id?: string; startedAt?: string; roundStartedAt?: string; finishedAt?: string; error?: string; messages: ViewMessage[]; partial?: PartialMessage; origin?: Origin; agentSessions?: AgentSessions; outcome?: RoundOutcome }
+/** Optional webview URIs for official logos dropped into media/logos/ (see README). Absent: the built-in glyphs are used. */
+export type Logos = Partial<Record<'claude' | 'codex', string>>;
+export const ROLE_LABELS: Record<Role, string> = { user: 'You', claude: 'Claude', codex: 'Codex' };
+export const STATUS_LABELS: Record<Status, string> = { idle: 'Ready', running: 'Running', completed: 'Completed', cancelled: 'Stopped', failed: 'Failed' };
+/** Label for the state dot: a completed agreement round says so. */
+export function statusLabel(state: ConversationState): string {
+  if (state.status === 'completed' && state.outcome?.kind === 'agreed') return 'Agreed';
+  if (state.status === 'completed' && state.outcome?.kind === 'limit') return 'No agreement';
+  return STATUS_LABELS[state.status];
+}
+/** Progress words shown while a turn is running. One list, cycled every WORD_SECONDS; extend freely. */
+export const THINKING_WORDS = ['Pondering', 'Propagating', 'Coagulating', 'Chasing', 'Percolating', 'Mulling', 'Marinating', 'Ruminating', 'Brewing', 'Noodling', 'Simmering', 'Cogitating', 'Untangling', 'Incubating', 'Deliberating', 'Scheming', 'Weighing', 'Distilling'];
+export const WORD_SECONDS = 3;
+/** Upper bound on a task typed into the composer or the input box. */
+export const MAX_TASK_CHARS = 32000;
+/** Characters of the task shown as the conversation title. */
+export const TITLE_CHARS = 60;
+export function initialState(): ConversationState { return { status: 'idle', messages: [] }; }
+export function startConversation(task: string, at: Date = new Date()): ConversationState {
+  return { status: 'running', task, startedAt: at.toISOString(), roundStartedAt: at.toISOString(), messages: [] };
+}
+/** A follow-up round on the same conversation: keeps id, task and messages; clears the previous outcome. */
+export function resumeConversation(state: ConversationState, at: Date = new Date()): ConversationState {
+  const { finishedAt: _finished, error: _error, partial: _partial, outcome: _outcome, ...rest } = state;
+  return { ...rest, status: 'running', roundStartedAt: at.toISOString() };
+}
+/** Number of rounds, one per user message. */
+export function rounds(state: ConversationState): number { return state.messages.filter(m => m.role === 'user').length; }
+export function receiveMessage(state: ConversationState, id: string, message: Message, at: Date = new Date()): ConversationState {
+  const { partial: _partial, ...rest } = state;
+  return { ...rest, id, messages: [...state.messages, { role: message.role, content: message.content, receivedAt: at.toISOString(), ...(message.verdict ? { verdict: message.verdict } : {}) }] };
+}
+/** Streamed text or an activity note for the running turn. Ignored unless the conversation is running. */
+export function receiveProgress(state: ConversationState, role: Exclude<Role, 'user'>, progress: Progress): ConversationState {
+  if (state.status !== 'running') return state;
+  const current = state.partial?.role === role ? state.partial : { role, text: '' };
+  const partial: PartialMessage = progress.type === 'delta' ? { ...current, text: current.text + progress.text } : { ...current, activity: progress.text };
+  return { ...state, partial };
+}
+export function finishConversation(state: ConversationState, status: FinalStatus, at: Date = new Date(), error?: string, outcome?: RoundOutcome): ConversationState {
+  const { partial: _partial, ...rest } = state;
+  return { ...rest, status, finishedAt: at.toISOString(), ...(error ? { error } : {}), ...(outcome ? { outcome } : {}) };
+}
+/** Minimal observable store so the extension and the webview share one state without VS Code events. */
+export class ConversationStore {
+  private state = initialState();
+  private readonly listeners = new Set<(state: ConversationState) => void>();
+  get(): ConversationState { return this.state; }
+  set(state: ConversationState): void { this.state = state; for (const listener of [...this.listeners]) listener(state); }
+  update(change: (state: ConversationState) => ConversationState): void { this.set(change(this.state)); }
+  subscribe(listener: (state: ConversationState) => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+}
+/** Local wall-clock time, HH:MM. */
+export function formatTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return [date.getHours(), date.getMinutes()].map(n => String(n).padStart(2, '0')).join(':');
+}
+export function formatDuration(fromIso: string, toIso: string): string {
+  const ms = new Date(toIso).getTime() - new Date(fromIso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const seconds = Math.round(ms / 1000);
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+/** Short single-line title from the task. */
+export function conversationTitle(state: ConversationState): string {
+  const text = (state.task ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return 'New conversation';
+  return text.length > TITLE_CHARS ? `${text.slice(0, TITLE_CHARS - 1).trimEnd()}…` : text;
+}
+/** Agent turns taken so far in the current round. A round starts at `roundStartedAt`; messages from earlier rounds do not count. */
+export function turnsInRound(state: ConversationState): number {
+  const since = state.roundStartedAt;
+  const inRound = since ? state.messages.filter(m => m.receivedAt >= since) : state.messages;
+  const lastUser = inRound.map(m => m.role).lastIndexOf('user');
+  return Math.max(inRound.length - lastUser - 1, 0);
+}
+/** Index of the running stage (0 Claude, 1 Codex) or -1 when nothing runs. Agents alternate, so this is the parity of the turn. */
+export function currentStage(state: ConversationState): number {
+  if (state.status !== 'running') return -1;
+  return turnsInRound(state) % 2;
+}
+/** Which agent the relay is waiting on: Claude first, then alternating. */
+export function nextRole(state: ConversationState): Exclude<Role, 'user'> {
+  return turnsInRound(state) % 2 === 0 ? 'claude' : 'codex';
+}
+/** When the pending turn began: the last arrival in this round, else the round start. */
+export function pendingSince(state: ConversationState): string | undefined {
+  const last = state.messages.length ? state.messages[state.messages.length - 1].receivedAt : undefined;
+  const round = state.roundStartedAt ?? state.startedAt;
+  if (last && round) return last > round ? last : round;
+  return last ?? round;
+}
+/** Word for a given number of elapsed seconds: cycles through `words` every `WORD_SECONDS`, offset so each turn starts somewhere new. */
+export function thinkingWord(elapsedSeconds: number, words: readonly string[] = THINKING_WORDS, offset = 0): string {
+  if (!words.length) return '';
+  const step = Math.floor(Math.max(0, elapsedSeconds) / WORD_SECONDS);
+  return words[(step + offset) % words.length];
+}
+/** Whole seconds as "12s" or "1m 5s". Self-contained: its source is embedded in the webview script. */
+export function formatSeconds(elapsedSeconds: number): string {
+  const s = Math.max(0, Math.floor(elapsedSeconds));
+  return s < 60 ? s + 's' : Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+}
+/** Text of the live indicator next to the agent's name. Self-contained: embedded in the webview script, so it must not reference module scope. */
+export function thinkingLabel(word: string, elapsedSeconds: number): string {
+  const s = Math.max(0, Math.floor(elapsedSeconds));
+  const elapsed = s < 60 ? s + 's' : Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+  return word + '… ' + elapsed;
+}
+/** Built-in avatar glyphs: plain initials in brand-ish colours. Official marks are not bundled (trademark); drop SVGs into media/logos/ instead. */
+export function avatar(role: Role, logos: Logos = {}): string {
+  const logo = role === 'user' ? undefined : logos[role];
+  if (logo) return `<img class="avatar avatar-${role}" src="${escapeHtml(logo)}" alt="${escapeHtml(ROLE_LABELS[role])}">`;
+  const glyph = role === 'user'
+    ? '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="3" fill="currentColor"/><path d="M2.5 14a5.5 5.5 0 0 1 11 0Z" fill="currentColor"/></svg>'
+    : role === 'claude' ? 'C' : 'Cx';
+  return `<span class="avatar avatar-${role}" aria-hidden="true">${glyph}</span>`;
+}
+const ICONS = {
+  plus: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v11M2.5 8h11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>',
+  copy: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M10.5 5.5V3.5A1 1 0 0 0 9.5 2.5h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" stroke="currentColor" stroke-width="1.3" fill="none"/></svg>',
+  send: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>',
+  history: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9M2.5 2.5v2.6h2.6M8 5v3.3l2.2 1.3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>',
+  stop: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor"/></svg>'
+};
+/** Title row: task excerpt, state, the conversation list and the New action. The conversation ID lives in the title's tooltip. */
+export function renderHeader(state: ConversationState): string {
+  const tooltip = state.id ? `Conversation ${state.id}` : 'No conversation yet';
+  const title = state.status === 'idle' ? 'Turnhuddle' : conversationTitle(state);
+  const origin = state.origin && state.status !== 'idle' ? `<span class="origin" title="${escapeHtml(`Continued from ${ROLE_LABELS[state.origin.provider]} session ${state.origin.sessionId}: ${state.origin.title}`)}">from ${escapeHtml(ROLE_LABELS[state.origin.provider])}</span>` : '';
+  return `<header class="top status-${state.status}${state.outcome ? ` outcome-${state.outcome.kind}` : ''}"><span class="title" title="${escapeHtml(tooltip)}">${escapeHtml(title)}</span>${origin}<span class="state"><i class="dot" aria-hidden="true"></i>${escapeHtml(statusLabel(state))}</span><button class="icon" type="button" data-command="history" title="Conversations">${ICONS.history}</button><button class="icon" type="button" data-command="new" title="New conversation"${state.status === 'idle' ? ' disabled' : ''}>${ICONS.plus}</button></header>`;
+}
+/** Values the static shell needs for its toolbar; sent alongside the HTML on every render. */
+export interface RenderMeta { status: Status; stage: number; round: number; turn: number; roundStartedAt?: string; finishedAt?: string; startedAt?: string; outcome?: RoundOutcome }
+export function renderMeta(state: ConversationState): RenderMeta {
+  return { status: state.status, stage: currentStage(state), round: rounds(state), turn: state.status === 'running' ? turnsInRound(state) + 1 : turnsInRound(state), roundStartedAt: state.roundStartedAt, finishedAt: state.finishedAt, startedAt: state.startedAt, ...(state.outcome ? { outcome: state.outcome } : {}) };
+}
+/** HTML fragment for the chat area (header, thread, notices). The composer lives in the static page, outside this fragment. */
+export function renderConversation(state: ConversationState, logos: Logos = {}): string {
+  if (state.status === 'idle') return `${renderHeader(state)}<section class="welcome"><div class="welcome-marks">${avatar('claude', logos)}${avatar('codex', logos)}</div><h1>Claude ↔ Codex</h1><p>Describe a task below. Claude proposes an approach, Codex reviews it, then Claude answers the critique. Reply to run another round on the same conversation.</p><p class="fine">Conversations are saved on this machine and listed under Conversations above; several can run at once. The full text also goes to the Turnhuddle Output channel. CLI usage may incur charges.</p></section>`;
+  const running = state.status === 'running';
+  const user = (content: string, time: string) => `<article class="msg msg-user"><div class="msg-meta"><time datetime="${escapeHtml(time)}">${formatTime(time)}</time></div><div class="user-card"><div class="content">${renderMarkdown(content)}</div></div></article>`;
+  const verdictTag = (verdict?: Verdict) => verdict ? `<span class="verdict verdict-${verdict}" title="${verdict === 'agree' ? 'Considers the current recommendation final' : 'Wants further changes'}">${verdict === 'agree' ? 'agrees' : 'continues'}</span>` : '';
+  const agent = (role: Exclude<Role, 'user'>, content: string, time: string, index: number, verdict?: Verdict) => `<article class="msg msg-${role}" data-index="${index}"><div class="msg-author">${avatar(role, logos)}<span class="name">${escapeHtml(ROLE_LABELS[role])}</span>${verdictTag(verdict)}<time datetime="${escapeHtml(time)}">${formatTime(time)}</time><button class="icon copy" type="button" data-command="copy" data-index="${index}" title="Copy message">${ICONS.copy}</button></div><div class="content">${renderMarkdown(content)}</div></article>`;
+  // Before the first publish event the task is shown from the state; afterwards every message, user replies included, is rendered.
+  const list: ViewMessage[] = state.messages.length ? state.messages : state.task ? [{ role: 'user', content: state.task, receivedAt: state.startedAt ?? '' }] : [];
+  let round = 0;
+  const turns = list.map((m, index) => `${m.role === 'user' && ++round > 1 ? `<div class="round-divider"><span>Round ${round}</span></div>` : ''}${m.role === 'user' ? user(m.content, m.receivedAt) : agent(m.role, m.content, m.receivedAt, index, m.verdict)}`).join('');
+  let thinking = '';
+  if (running) {
+    const role = nextRole(state); const since = pendingSince(state) ?? new Date().toISOString();
+    const partial = state.partial?.role === role ? state.partial : undefined;
+    const label = `<span class="thinking-label" aria-live="polite"><i class="spark" aria-hidden="true"></i>${escapeHtml(thinkingLabel(thinkingWord(0, THINKING_WORDS, state.messages.length), 0))}</span>`;
+    const activity = partial?.activity && !partial.text ? `<p class="activity">${escapeHtml(partial.activity)}…</p>` : '';
+    const streamed = partial?.text ? `<div class="content streaming">${renderMarkdown(partial.text)}</div>` : '';
+    thinking = `<article class="msg msg-${role} thinking${streamed ? ' streaming' : ''}" data-role="${escapeHtml(ROLE_LABELS[role])}" data-since="${escapeHtml(since)}" data-offset="${state.messages.length}"><div class="msg-author">${avatar(role, logos)}<span class="name">${escapeHtml(ROLE_LABELS[role])}</span>${label}</div>${activity}${streamed}</article>`;
+  }
+  const error = state.error ? `<section class="notice notice-${state.status}"><strong>${state.status === 'cancelled' ? 'Stopped' : 'Failed'}</strong><pre>${escapeHtml(state.error)}</pre></section>` : '';
+  const duration = state.startedAt && state.finishedAt ? ` · ${formatDuration(state.roundStartedAt ?? state.startedAt, state.finishedAt)}` : '';
+  const outcomeText = state.outcome?.kind === 'agreed' ? `Round ${rounds(state)} · both agreed after ${state.outcome.turns} turn${state.outcome.turns === 1 ? '' : 's'}` : state.outcome?.kind === 'limit' ? `Round ${rounds(state)} · no agreement after ${state.outcome.turns} turns (limit reached)` : `Round ${rounds(state)} complete`;
+  const done = !running && !state.error && state.status === 'completed' ? `<p class="done${state.outcome ? ` done-${state.outcome.kind}` : ''}">${outcomeText}${duration}</p>` : '';
+  return `${renderHeader(state)}<div class="thread">${turns}${thinking}</div>${error}${done}`;
+}
+/** Full webview document: static chrome (scrollable chat area, composer with toolbar) filled by `renderConversation` via postMessage. */
+export function renderPage(nonce: string, cspSource: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Turnhuddle</title>
+<style nonce="${nonce}">
+:root { --th-claude: #d97757; --th-codex: #10a37f; --th-border: var(--vscode-widget-border, rgba(128,128,128,0.28)); --th-surface: var(--vscode-editorWidget-background, rgba(128,128,128,0.1)); --th-muted: var(--vscode-descriptionForeground, rgba(128,128,128,0.9)); --th-accent: var(--vscode-button-background, #0e639c); --th-accent-fg: var(--vscode-button-foreground, #fff); }
+html, body { height: 100%; margin: 0; }
+body { display: flex; flex-direction: column; color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); line-height: 1.5; }
+button { font-family: inherit; font-size: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button:disabled { cursor: default; opacity: 0.4; }
+.icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 5px; color: var(--th-muted); }
+.icon svg { width: 15px; height: 15px; } .icon:hover:not(:disabled) { background: var(--th-surface); color: var(--vscode-foreground); }
+#root { flex: 1 1 auto; overflow-y: auto; padding: 0 14px 12px; }
+.top { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 9px 0 8px; margin: 0 0 6px; background: var(--vscode-sideBar-background, inherit); border-bottom: 1px solid var(--th-border); }
+.top .title { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top .state { display: inline-flex; align-items: center; gap: 5px; font-size: 0.82em; color: var(--th-muted); white-space: nowrap; }
+.top .origin { flex: none; padding: 1px 7px; border-radius: 9px; background: var(--th-surface); border: 1px solid var(--th-border); font-size: 0.74em; color: var(--th-muted); white-space: nowrap; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--th-muted); }
+.status-running .dot { background: var(--vscode-progressBar-background, #0e70c0); animation: pulse-dot 1.2s ease-in-out infinite; }
+.status-completed .dot { background: var(--vscode-testing-iconPassed, #388a34); } .status-failed .dot { background: var(--vscode-testing-iconFailed, #f14c4c); } .status-cancelled .dot { background: var(--vscode-testing-iconSkipped, #848484); }
+.status-completed.outcome-limit .dot { background: var(--vscode-editorWarning-foreground, #cca700); }
+.verdict { padding: 0 6px; border-radius: 8px; font-size: 0.78em; font-weight: 500; }
+.verdict-agree { background: rgba(56, 138, 52, 0.18); color: var(--vscode-testing-iconPassed, #4cb04a); }
+.verdict-continue { background: rgba(204, 167, 0, 0.16); color: var(--vscode-editorWarning-foreground, #cca700); }
+.done-agreed { color: var(--vscode-testing-iconPassed, #4cb04a); } .done-limit { color: var(--vscode-editorWarning-foreground, #cca700); }
+@keyframes pulse-dot { 50% { opacity: 0.35; } }
+.welcome { text-align: center; padding: 36px 10px 20px; }
+.welcome-marks { display: flex; justify-content: center; gap: 8px; margin-bottom: 12px; }
+.welcome h1 { font-size: 1.2em; margin: 0 0 8px; } .welcome p { margin: 0 auto 8px; max-width: 34em; color: var(--th-muted); } .welcome .fine { font-size: 0.85em; opacity: 0.8; }
+.thread { display: flex; flex-direction: column; gap: 14px; }
+.msg { min-width: 0; }
+.msg-meta { display: flex; justify-content: flex-end; margin-bottom: 4px; font-size: 0.8em; color: var(--th-muted); }
+.user-card { padding: 9px 12px; border-radius: 10px; background: var(--vscode-input-background, var(--th-surface)); border: 1px solid var(--th-border); }
+.msg-author { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; font-size: 0.9em; }
+.msg-author .name { font-weight: 600; } .msg-author time { color: var(--th-muted); font-size: 0.9em; }
+.msg-author .copy { margin-left: auto; opacity: 0; transition: opacity 0.15s; } .msg:hover .copy, .copy:focus-visible { opacity: 1; }
+.msg-claude .name { color: var(--th-claude); } .msg-codex .name { color: var(--th-codex); }
+.avatar { flex: none; width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; object-fit: contain; }
+.welcome .avatar { width: 28px; height: 28px; font-size: 12px; }
+.avatar-user { background: var(--th-accent); color: var(--th-accent-fg); } .avatar-user svg { width: 12px; height: 12px; }
+.avatar-claude { background: var(--th-claude); } .avatar-codex { background: var(--th-codex); }
+img.avatar { background: transparent; padding: 1px; }
+.msg-claude .content, .msg-codex .content { padding-left: 27px; }
+.content > :first-child { margin-top: 0; } .content > :last-child { margin-bottom: 0; }
+.content p, .content ul, .content ol, .content blockquote, .content table, .content pre { margin: 0 0 10px; }
+.content h1, .content h2, .content h3 { margin: 14px 0 6px; font-size: 1.05em; font-weight: 700; } .content h4, .content h5, .content h6 { margin: 10px 0 4px; font-size: 1em; font-weight: 600; }
+.content ul, .content ol { padding-left: 22px; } .content li { margin: 3px 0; }
+.content blockquote { padding-left: 10px; border-left: 2px solid var(--th-border); color: var(--th-muted); }
+.content hr { border: 0; border-top: 1px solid var(--th-border); margin: 10px 0; }
+.content a { color: var(--vscode-textLink-foreground); text-decoration: none; } .content a:hover { text-decoration: underline; }
+.content code { padding: 1px 5px; border-radius: 4px; background: var(--vscode-textCodeBlock-background, rgba(128,128,128,0.18)); font-family: var(--vscode-editor-font-family, monospace); font-size: 0.92em; }
+.content pre.code { position: relative; padding: 9px 11px; border-radius: 8px; background: var(--vscode-textCodeBlock-background, rgba(128,128,128,0.18)); overflow-x: auto; }
+.content pre.code code { padding: 0; background: none; white-space: pre; }
+.content pre.code[data-lang] { padding-top: 22px; }
+.content pre.code[data-lang]::before { content: attr(data-lang); position: absolute; top: 4px; right: 9px; font-size: 0.75em; color: var(--th-muted); }
+.content table { border-collapse: collapse; font-size: 0.95em; } .content th, .content td { padding: 4px 9px; border: 1px solid var(--th-border); text-align: left; }
+.thinking-label { display: inline-flex; align-items: center; gap: 5px; margin-left: 2px; font-style: italic; color: var(--th-muted); font-size: 0.92em; }
+.spark { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pulse-dot 1s ease-in-out infinite; }
+.activity { margin: 0; padding-left: 27px; font-style: italic; color: var(--th-muted); font-size: 0.92em; }
+.content.streaming > :last-child::after { content: '▍'; opacity: 0.6; animation: blink 1s steps(2) infinite; }
+@keyframes blink { to { opacity: 0; } }
+.round-divider { display: flex; align-items: center; gap: 10px; margin: 2px 0; font-size: 0.78em; color: var(--th-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.round-divider::before, .round-divider::after { content: ''; flex: 1; border-top: 1px solid var(--th-border); }
+.notice { margin-top: 14px; padding: 9px 12px; border-radius: 8px; background: var(--th-surface); border-left: 3px solid var(--vscode-errorForeground, #f48771); font-size: 0.92em; }
+.notice-cancelled { border-left-color: var(--vscode-testing-iconSkipped, #848484); }
+.notice pre { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; }
+.done { margin: 14px 0 0; text-align: center; font-size: 0.82em; color: var(--th-muted); }
+.composer { flex: none; padding: 6px 12px 10px; background: var(--vscode-sideBar-background, inherit); }
+.composer-box { display: flex; flex-direction: column; border: 1px solid var(--vscode-input-border, var(--th-border)); border-radius: 12px; background: var(--vscode-input-background); box-shadow: 0 1px 4px rgba(0,0,0,0.12); }
+.composer-box:focus-within { border-color: var(--vscode-focusBorder); }
+body[data-status="running"] .composer-box { border-color: var(--vscode-focusBorder, var(--th-accent)); }
+textarea { width: 100%; box-sizing: border-box; min-height: 42px; max-height: 200px; padding: 10px 12px 4px; border: 0; outline: 0; resize: none; background: transparent; color: var(--vscode-input-foreground); font-family: inherit; font-size: inherit; line-height: 1.45; }
+textarea::placeholder { color: var(--vscode-input-placeholderForeground); } textarea:disabled { opacity: 0.6; }
+.composer-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px 8px 10px; min-height: 28px; min-width: 0; }
+.composer-bar > * { flex: 0 1 auto; min-width: 0; } .composer-bar .round-btn, .composer-bar .run-status { flex: none; }
+.run-status { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8em; color: var(--th-muted); white-space: nowrap; }
+.run-status .spinner { display: none; width: 10px; height: 10px; border: 2px solid var(--vscode-progressBar-background, #0e70c0); border-top-color: transparent; border-radius: 50%; animation: spin 0.9s linear infinite; }
+body[data-status="running"] .run-status .spinner { display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.relay { display: inline-flex; align-items: center; gap: 3px; margin-left: 2px; padding: 2px 7px; border-radius: 10px; background: var(--th-surface); font-size: 0.76em; color: var(--th-muted); white-space: nowrap; overflow: hidden; }
+.relay span { padding: 0 1px; } .relay i { font-style: normal; opacity: 0.5; }
+.relay span[data-active] { color: var(--vscode-foreground); font-weight: 600; }
+.relay .turn { margin-left: 4px; opacity: 0.8; } .relay .turn:empty { display: none; }
+.relay span[data-active]::before { content: ''; display: inline-block; width: 5px; height: 5px; margin-right: 4px; border-radius: 50%; background: var(--vscode-progressBar-background, #0e70c0); vertical-align: 1px; animation: pulse-dot 1s ease-in-out infinite; }
+.pill { padding: 2px 8px; border-radius: 10px; background: var(--th-surface); font-size: 0.76em; color: var(--th-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body[data-status="running"] .pill { display: none; }
+.pill:hover { color: var(--vscode-foreground); }
+.spacer { flex: 1; }
+.round-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; }
+.round-btn svg { width: 15px; height: 15px; }
+#send { background: var(--th-accent); color: var(--th-accent-fg); } #send:hover:not(:disabled) { background: var(--vscode-button-hoverBackground, var(--th-accent)); }
+#send:disabled { opacity: 0.35; }
+#stop { display: none; background: var(--vscode-button-secondaryBackground, var(--th-surface)); color: var(--vscode-button-secondaryForeground, inherit); }
+#stop:hover { background: var(--vscode-button-secondaryHoverBackground, var(--th-surface)); }
+body[data-status="running"] #stop { display: inline-flex; } body[data-status="running"] #send { display: none; }
+.hint { margin: 6px 2px 0; font-size: 0.76em; color: var(--th-muted); opacity: 0.8; }
+@media (max-width: 330px) { .relay { display: none; } } @media (max-width: 390px) { .pill { display: none; } }
+</style>
+</head>
+<body data-status="idle">
+<main id="root"></main>
+<footer class="composer">
+  <div class="composer-box">
+    <textarea id="task" rows="1" maxlength="${MAX_TASK_CHARS}" placeholder="Describe a task for Claude and Codex to discuss…" aria-label="Task"></textarea>
+    <div class="composer-bar">
+      <span class="run-status"><i class="spinner" aria-hidden="true"></i><span id="run-text">Ready</span></span>
+      <span class="relay" id="relay" title="Claude and Codex alternate until both agree (or the fixed three turns in fixed mode)"><span data-stage="0">Claude</span><i>⇄</i><span data-stage="1">Codex</span><span id="turn" class="turn"></span></span>
+      <button id="effort" class="pill" type="button" data-command="settings" title="Turnhuddle settings"></button>
+      <span class="spacer"></span>
+      <button id="stop" class="round-btn" type="button" data-command="cancel" title="Stop the running conversation">${ICONS.stop}</button>
+      <button id="send" class="round-btn" type="button" data-command="send" title="Send (Enter)">${ICONS.send}</button>
+    </div>
+  </div>
+  <p class="hint">Enter to send · Shift+Enter for a new line</p>
+</footer>
+<script nonce="${nonce}">
+(function () {
+  const vscode = acquireVsCodeApi();
+  const root = document.getElementById('root');
+  const task = document.getElementById('task');
+  const send = document.getElementById('send');
+  const runText = document.getElementById('run-text');
+  const effort = document.getElementById('effort');
+  const words = ${JSON.stringify(THINKING_WORDS)};
+  const wordSeconds = ${WORD_SECONDS};
+  const thinkingLabel = ${thinkingLabel.toString()};
+  const formatSeconds = ${formatSeconds.toString()};
+  let timer; let meta = { status: 'idle' };
+  const seconds = iso => Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 1000));
+  const tick = () => {
+    const el = root.querySelector('.thinking');
+    if (el) {
+      const elapsed = seconds(el.dataset.since);
+      const word = words[(Math.floor(elapsed / wordSeconds) + Number(el.dataset.offset || 0)) % words.length];
+      el.querySelector('.thinking-label').lastChild.textContent = thinkingLabel(word, elapsed);
+    }
+    if (meta.status === 'running' && meta.roundStartedAt) runText.textContent = 'Round ' + Math.max(1, meta.round) + ' · ' + formatSeconds(seconds(meta.roundStartedAt));
+    else { clearInterval(timer); timer = undefined; }
+  };
+  const describe = m => {
+    if (m.status === 'running') return 'Round ' + Math.max(1, m.round) + ' · 0s';
+    if (m.status === 'completed') return (m.outcome && m.outcome.kind === 'agreed' ? 'Agreed' : m.outcome && m.outcome.kind === 'limit' ? 'No agreement' : 'Done') + (m.roundStartedAt && m.finishedAt ? ' in ' + formatSeconds((Date.parse(m.finishedAt) - Date.parse(m.roundStartedAt)) / 1000) : '');
+    if (m.status === 'failed') return 'Failed'; if (m.status === 'cancelled') return 'Stopped';
+    return 'Ready';
+  };
+  const grow = () => { task.style.height = 'auto'; task.style.height = Math.min(task.scrollHeight, 200) + 'px'; };
+  const submit = () => {
+    const text = task.value.trim();
+    if (!text || document.body.dataset.status === 'running') return;
+    vscode.postMessage({ command: 'send', text });
+    task.value = ''; grow();
+  };
+  window.addEventListener('message', event => {
+    if (!event.data || event.data.type !== 'render') return;
+    const atBottom = root.scrollTop + root.clientHeight >= root.scrollHeight - 40;
+    root.innerHTML = event.data.html;
+    meta = event.data.meta || { status: event.data.status || 'idle' };
+    const status = meta.status;
+    document.body.dataset.status = status;
+    const running = status === 'running';
+    task.disabled = running; send.disabled = running;
+    task.placeholder = status === 'idle' ? 'Describe a task for Claude and Codex to discuss…' : running ? 'Conversation in progress…' : 'Reply to continue the conversation…';
+    runText.textContent = describe(meta);
+    for (const stage of document.querySelectorAll('#relay [data-stage]')) { if (Number(stage.dataset.stage) === meta.stage) stage.setAttribute('data-active', ''); else stage.removeAttribute('data-active'); }
+    document.getElementById('turn').textContent = running && meta.turn ? '· turn ' + meta.turn + (event.data.maxTurns ? ' of ≤' + event.data.maxTurns : '') : '';
+    if (typeof event.data.effort === 'string') { effort.textContent = event.data.effort; effort.style.display = event.data.effort ? '' : 'none'; }
+    if (running) { tick(); if (!timer) timer = setInterval(tick, 1000); }
+    if (atBottom || running) root.scrollTop = root.scrollHeight;
+    if (!running && document.activeElement !== task && document.hasFocus()) task.focus();
+  });
+  task.addEventListener('input', grow);
+  task.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); submit(); } });
+  send.addEventListener('click', submit);
+  document.getElementById('stop').addEventListener('click', () => vscode.postMessage({ command: 'cancel' }));
+  effort.addEventListener('click', () => vscode.postMessage({ command: 'settings' }));
+  root.addEventListener('click', event => {
+    const button = event.target.closest('button[data-command]');
+    if (!button || button.disabled) return;
+    if (button.dataset.command === 'new') vscode.postMessage({ command: 'new' });
+    else if (button.dataset.command === 'history') vscode.postMessage({ command: 'history' });
+    else if (button.dataset.command === 'copy') vscode.postMessage({ command: 'copy', index: Number(button.dataset.index) });
+  });
+  vscode.postMessage({ command: 'ready' });
+})();
+</script>
+</body>
+</html>`;
+}
