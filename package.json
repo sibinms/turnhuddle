@@ -5,6 +5,14 @@
   "version": "0.2.0",
   "publisher": "turnhuddle",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sibinms/turnhuddle.git"
+  },
+  "homepage": "https://github.com/sibinms/turnhuddle#readme",
+  "bugs": {
+    "url": "https://github.com/sibinms/turnhuddle/issues"
+  },
   "icon": "media/icon.png",
   "categories": [
     "AI",

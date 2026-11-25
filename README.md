@@ -79,7 +79,7 @@ Nothing is published yet. Releasing to the Visual Studio Marketplace takes these
 
 1. **Publisher.** Sign in at <https://marketplace.visualstudio.com/manage> with a Microsoft account and create a publisher. Its ID must match `publisher` in `package.json` (currently `turnhuddle`; change it if that ID is taken). Then create an Azure DevOps personal access token with the *Marketplace → Manage* scope.
 2. **Licence.** Done: MIT, in `LICENSE` and the `license` field of `package.json`.
-3. **Repository.** Put the project in git, push it, and add `repository`, `homepage` and `bugs` to `package.json`.
+3. **Repository.** Done: <https://github.com/sibinms/turnhuddle> (private until you choose to make it public with `gh repo edit --visibility public`); `repository`, `homepage` and `bugs` are set in `package.json`.
 4. **Check the package.** `npm run vsce:ls` lists exactly what ships; `npm run package` builds the VSIX and must print no warnings. Install the VSIX locally once more and try it.
 5. **Publish.** `npx vsce login <publisher>` with the token, then `npx vsce publish` (or upload the VSIX on the publisher page). For later versions, bump `version`, add a `CHANGELOG.md` entry, tag the commit and publish again. Open VSX (`npx ovsx publish`) is optional for VSCodium users.
 
