@@ -1,0 +1,19 @@
+{
+  "version": "0.2.6",
+  "date": "2026-11-26",
+  "headline": "One chat window, like Claude Code",
+  "pill": "one chat window, with everything else in the history",
+  "summary": "Turnhuddle is now a single chat window, as in Claude Code. The separate Conversations list is gone: your past conversations live in the history behind the clock, where you can bookmark, archive and restore them.",
+  "highlights": [
+    {
+      "tag": "Changed",
+      "title": "Everything in the history",
+      "text": "Open the history from the clock in the chat header. Bookmarked conversations come first, then recent ones, each with its age, rounds and outcome. Hover a row for **Bookmark** and **Archive**; **Show archived** lists archived conversations, and picking one restores and opens it. **Continue from a Claude Code or Codex session\u2026** is at the end of the list.",
+      "image": "recents",
+      "alt": "The conversation history over the Turnhuddle chat, with bookmark and archive buttons on the highlighted row and Show archived at the bottom"
+    }
+  ],
+  "improvements": [
+    "The Turnhuddle sidebar has just the chat; the duplicate New and Stop icons in the view's title bar are gone, since the chat header and composer have them."
+  ]
+}

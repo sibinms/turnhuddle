@@ -2,7 +2,7 @@
   "name": "turnhuddle",
   "displayName": "Turnhuddle",
   "description": "Claude Code and Codex in one chat: Claude proposes, Codex reviews, and they keep going until both agree.",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "publisher": "turnhuddle",
   "license": "MIT",
   "repository": {
@@ -241,43 +241,11 @@
           "id": "turnhuddle.conversation",
           "name": "Chat",
           "contextualTitle": "Turnhuddle"
-        },
-        {
-          "id": "turnhuddle.sessions",
-          "name": "Conversations",
-          "contextualTitle": "Turnhuddle",
-          "visibility": "collapsed"
         }
       ]
     },
     "menus": {
-      "view/title": [
-        {
-          "command": "turnhuddle.clear",
-          "when": "view == turnhuddle.conversation && !turnhuddle.running",
-          "group": "navigation@1"
-        },
-        {
-          "command": "turnhuddle.cancel",
-          "when": "view == turnhuddle.conversation && turnhuddle.running",
-          "group": "navigation@1"
-        },
-        {
-          "command": "turnhuddle.continueFrom",
-          "when": "view == turnhuddle.sessions",
-          "group": "navigation@0"
-        },
-        {
-          "command": "turnhuddle.refreshSessions",
-          "when": "view == turnhuddle.sessions",
-          "group": "navigation@1"
-        },
-        {
-          "command": "turnhuddle.revealHistory",
-          "when": "view == turnhuddle.sessions",
-          "group": "navigation@2"
-        }
-      ],
+      "view/title": [],
       "commandPalette": [
         {
           "command": "turnhuddle.getState",
@@ -307,41 +275,8 @@
           "command": "turnhuddle.listVendorSessions",
           "when": "false"
         }
-      ],
-      "view/item/context": [
-        {
-          "command": "turnhuddle.archive",
-          "when": "view == turnhuddle.sessions && viewItem == turnhuddle.conversation",
-          "group": "inline@1"
-        },
-        {
-          "command": "turnhuddle.archive",
-          "when": "view == turnhuddle.sessions && viewItem == turnhuddle.conversation",
-          "group": "1_modify@1"
-        },
-        {
-          "command": "turnhuddle.restore",
-          "when": "view == turnhuddle.sessions && viewItem == turnhuddle.archived",
-          "group": "inline@1"
-        },
-        {
-          "command": "turnhuddle.restore",
-          "when": "view == turnhuddle.sessions && viewItem == turnhuddle.archived",
-          "group": "1_modify@1"
-        },
-        {
-          "command": "turnhuddle.revealHistory",
-          "when": "view == turnhuddle.sessions && viewItem == turnhuddle.archivedGroup",
-          "group": "inline@1"
-        }
       ]
-    },
-    "viewsWelcome": [
-      {
-        "view": "turnhuddle.sessions",
-        "contents": "No conversations yet. Type a task in the Chat view below to start one.\n[Continue from a Claude Code or Codex Session](command:turnhuddle.continueFrom)"
-      }
-    ]
+    }
   },
   "scripts": {
     "compile": "tsc -p .",

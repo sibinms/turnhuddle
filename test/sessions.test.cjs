@@ -183,3 +183,10 @@ test('bookmarks: listed first, saved, kept through updates, and grouped in the h
   assert.deepEqual(entries.map(e => e.kind === 'separator' ? `[${e.label}]` : e.conversation.id), ['[Bookmarked]', 'new', '[Recent]', 'old'], 'archived conversations stay out of the history');
   assert.deepEqual(historyEntries([]), []);
 });
+const { conversationIdFrom } = require('../dist/sessions');
+test('conversationIdFrom accepts an id, an object with id, or a conversation node', () => {
+  assert.equal(conversationIdFrom('abc'), 'abc');
+  assert.equal(conversationIdFrom({ id: 'x' }), 'x');
+  assert.equal(conversationIdFrom({ conversation: { id: 'y' } }), 'y');
+  assert.equal(conversationIdFrom(undefined), undefined); assert.equal(conversationIdFrom(5), undefined);
+});

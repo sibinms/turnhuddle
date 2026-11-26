@@ -2,6 +2,12 @@
 
 All notable changes to Turnhuddle are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 0.2.6 — 2026-11-26
+
+### Changed
+- A single chat window, like Claude Code: the Conversations view is removed and past conversations live in the history (the clock), with Bookmark and Archive buttons on each row and Show archived to restore.
+- The view title bar no longer repeats the New and Stop actions.
+
 ## 0.2.5 — 2026-11-26
 
 ### Fixed

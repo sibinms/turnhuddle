@@ -176,3 +176,14 @@ export function historyEntries(conversations: StoredConversation[]): HistoryEntr
   if (rest.length) out.push({ kind: 'separator', label: 'Recent' }, ...rest.map(conversation => ({ kind: 'conversation', conversation }) as HistoryEntry));
   return out;
 }
+
+/** Conversation id from a command argument: an id string, or an object carrying `id` or `conversation.id`. */
+export function conversationIdFrom(argument: unknown): string | undefined {
+  if (typeof argument === 'string') return argument;
+  if (argument && typeof argument === 'object') {
+    const a = argument as { id?: unknown; conversation?: { id?: unknown } };
+    if (typeof a.id === 'string') return a.id;
+    if (a.conversation && typeof a.conversation.id === 'string') return a.conversation.id;
+  }
+  return undefined;
+}
