@@ -9,6 +9,8 @@ const VENDOR_EXTENSIONS = { claude: 'anthropic.claude-code', codex: 'openai.chat
 export interface StateSource { get(): ConversationState; subscribe(listener: (state: ConversationState) => void): () => void }
 export const VIEW_ID = 'turnhuddle.conversation';
 export const PUSH_INTERVAL_MS = 60;
+/** globalState key: the version whose "What's new" card the user dismissed. */
+const WHATS_NEW_SEEN = 'turnhuddle.whatsNewSeen';
 /** Short description of the effort settings for the composer toolbar. */
 export function effortLabel(): string {
   const config = vscode.workspace.getConfiguration('turnhuddle');
@@ -23,12 +25,14 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
   private extensionUri: vscode.Uri | undefined;
   private logos: Logos = {};
   private configListener: vscode.Disposable | undefined;
+  private context: vscode.ExtensionContext | undefined;
   constructor(private readonly store: StateSource) {}
   get resolved(): boolean { return this.view !== undefined; }
   get visible(): boolean { return this.view?.visible ?? false; }
   /** Logo URIs in use by the current webview, for diagnostics and tests. */
   get logoSources(): Logos { return { ...this.logos }; }
   register(context: vscode.ExtensionContext): void {
+    this.context = context;
     this.extensionUri = context.extensionUri;
     context.subscriptions.push(vscode.window.registerWebviewViewProvider(VIEW_ID, this));
     context.subscriptions.push({ dispose: this.store.subscribe(() => this.push()) });
@@ -64,6 +68,9 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
       else if (message?.command === 'new') void vscode.commands.executeCommand('turnhuddle.clear');
       else if (message?.command === 'history') void vscode.commands.executeCommand('turnhuddle.history');
       else if (message?.command === 'bookmark') void vscode.commands.executeCommand('turnhuddle.toggleBookmark');
+      else if (message?.command === 'rename') void vscode.commands.executeCommand('turnhuddle.rename');
+      else if (message?.command === 'mode') { const config = vscode.workspace.getConfiguration('turnhuddle'); void config.update('roundMode', config.get<string>('roundMode', 'agreement') === 'fixed' ? 'agreement' : 'fixed', vscode.ConfigurationTarget.Global); }
+      else if (message?.command === 'dismissWhatsNew') void this.context?.globalState.update(WHATS_NEW_SEEN, this.version());
       else if (message?.command === 'settings') void vscode.commands.executeCommand('workbench.action.openSettings', '@ext:turnhuddle.turnhuddle');
       else if (message?.command === 'copy') void this.copy(typeof message.index === 'number' ? message.index : -1);
     });
@@ -87,7 +94,13 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
     if (!this.view || !this.view.visible) return;
     const state = this.store.get();
     const config = vscode.workspace.getConfiguration('turnhuddle');
-    void this.view.webview.postMessage({ type: 'render', status: state.status, meta: renderMeta(state), effort: effortLabel(), maxTurns: config.get<string>('roundMode', 'agreement') === 'agreement' ? config.get<number>('maxTurnsPerRound', 10) : 3, html: renderConversation(state, this.logos) });
+    const version = this.version();
+    const whatsNew = version && this.context?.globalState.get<string>(WHATS_NEW_SEEN) !== version ? version : undefined;
+    void this.view.webview.postMessage({ type: 'render', status: state.status, meta: renderMeta(state), effort: effortLabel(), mode: config.get<string>('roundMode', 'agreement'), maxTurns: config.get<string>('roundMode', 'agreement') === 'agreement' ? config.get<number>('maxTurnsPerRound', 10) : 3, html: renderConversation(state, this.logos, { whatsNew }) });
+  }
+  private version(): string | undefined {
+    const v = this.context?.extension.packageJSON?.version;
+    return typeof v === 'string' ? v : undefined;
   }
   /** Copies a landed message to the clipboard (the webview may lack clipboard access). */
   private async copy(index: number): Promise<void> {

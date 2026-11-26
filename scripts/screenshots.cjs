@@ -89,11 +89,11 @@ function continuedConversation() {
 
 // ---------- page pieces ----------
 const css = vars => Object.entries(vars).map(([k, v]) => `--vscode-${k}:${v};`).join('');
-function panelPage(state, theme) {
+function panelPage(state, theme, options = {}) {
   const t = THEMES[theme];
   const stub = `<script nonce="n1">window.acquireVsCodeApi=()=>({postMessage(){}});</script><style nonce="n1">:root{${css(t.vars)}--vscode-font-family:-apple-system,"Segoe UI",sans-serif;--vscode-font-size:13px;--vscode-editor-font-family:"SF Mono",Menlo,monospace}html,body{background:${t.vars['sideBar-background']}}</style>`;
   return view.renderPage('n1', 'file:').replace('<style nonce="n1">', `${stub}<style nonce="n1">`)
-    .replace('</body>', `<script nonce="n1">window.postMessage({type:"render",status:${JSON.stringify(state.status)},meta:${JSON.stringify(view.renderMeta(state))},effort:"Codex medium",maxTurns:10,html:${JSON.stringify(view.renderConversation(state))}},"*");</script></body>`);
+    .replace('</body>', `<script nonce="n1">window.postMessage({type:"render",status:${JSON.stringify(state.status)},meta:${JSON.stringify(view.renderMeta(state))},effort:"Codex medium",mode:"agreement",maxTurns:10,html:${JSON.stringify(view.renderConversation(state, {}, options))}},"*");</script></body>`);
 }
 const ICON = {
   files: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
@@ -224,7 +224,7 @@ const SCENES = {
   streaming: { state: streamingConversation, opts: {} },
   history: { state: continuedConversation, opts: {} },
   continue: { state: () => view.initialState(), opts: { overlay: quickPick } },
-  welcome: { state: () => view.initialState(), opts: {} },
+  welcome: { state: () => view.initialState(), opts: {}, view: { whatsNew: require('../package.json').version } },
   recents: { state: agreedConversation, opts: { overlay: historyPicker } }
 };
 
@@ -236,7 +236,7 @@ for (const name of only) {
   for (const theme of ['light', 'dark']) {
     const scene = SCENES[name];
     const panelFile = `${name}-${theme}-panel.html`;
-    fs.writeFileSync(path.join(WORK, panelFile), panelPage(scene.state(), theme));
+    fs.writeFileSync(path.join(WORK, panelFile), panelPage(scene.state(), theme, scene.view));
     const opts = { ...scene.opts, overlay: typeof scene.opts.overlay === 'function' ? scene.opts.overlay(THEMES[theme].chrome) : scene.opts.overlay };
     const pageFile = path.join(WORK, `${name}-${theme}.html`);
     fs.writeFileSync(pageFile, windowPage(theme, panelFile, opts));

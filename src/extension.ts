@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { claudeAdapter, codexAdapter, ContextMode, Conversation, DEFAULT_MAX_TURNS, Effort, Message, relay, RoundMode, run, SessionOptions } from './bridge';
-import { ConversationState, finishConversation, MAX_TASK_CHARS, Origin, receiveMessage, receiveProgress, resumeConversation } from './conversationView';
+import { ConversationState, conversationTitle, finishConversation, MAX_TASK_CHARS, Origin, receiveMessage, receiveProgress, resumeConversation } from './conversationView';
 import { conversationIdFrom, historyEntries, HistoryStore, SessionManager, SessionSummary, StoredConversation, withAgentSession } from './sessions';
 import { listVendorSessions, VendorSession } from './vendorSessions';
 import { ConversationViewProvider } from './sidebar';
@@ -210,6 +210,16 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
     sessions.setBookmarked(id, next);
     return next;
   });
+  /** Renames the open conversation (or the given one). An empty name restores the automatic title. */
+  register('turnhuddle.rename', async (argument?: unknown, name?: unknown): Promise<string | undefined> => {
+    const id = conversationIdFrom(argument) ?? sessions.selectedId();
+    const c = id ? sessions.getConversation(id) : undefined;
+    if (!id || !c) { void vscode.window.showInformationMessage('Open a conversation to rename it.'); return undefined; }
+    const value = typeof name === 'string' ? name : await vscode.window.showInputBox({ title: 'Rename conversation', value: conversationTitle(c), prompt: 'Leave empty to name it after its first message.', valueSelection: [0, conversationTitle(c).length] });
+    if (value === undefined) return undefined;
+    sessions.setTitle(id, value);
+    return conversationTitle(sessions.getConversation(id) ?? c);
+  });
   /** Claude Code-style history, the one place for past conversations: bookmarked first, then recent. Each row can be
    * bookmarked or archived in place; "Show archived" lists archived conversations to restore. Picking a row opens it. */
   register('turnhuddle.history', async (): Promise<string | undefined> => {
@@ -222,7 +232,7 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
       const state = running.has(c.id) ? 'running' : c.outcome?.kind === 'agreed' ? 'agreed' : c.outcome?.kind === 'limit' ? 'no agreement' : c.status;
       return [age(c.updatedAt), `${roundCount} round${roundCount === 1 ? '' : 's'}`, state, c.origin ? `from ${c.origin.provider === 'claude' ? 'Claude Code' : 'Codex'}` : ''].filter(Boolean).join(' · ');
     };
-    const label = (c: StoredConversation) => { const t = c.task.replace(/\s+/g, ' ').trim(); return `$(${c.archived ? 'archive' : c.bookmarked ? 'bookmark' : 'comment-discussion'}) ${t.length > 72 ? `${t.slice(0, 71)}…` : t}`; };
+    const label = (c: StoredConversation) => { const t = conversationTitle(c); return `$(${c.archived ? 'archive' : c.bookmarked ? 'bookmark' : 'comment-discussion'}) ${t.length > 72 ? `${t.slice(0, 71)}…` : t}`; };
     const pick = vscode.window.createQuickPick<Item>();
     pick.title = 'Conversation history'; pick.matchOnDetail = true;
     let showArchived = false;

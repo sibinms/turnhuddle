@@ -55,7 +55,7 @@ Claude's reply streams in as it's written, with a live status like *Noodling… 
   <img src="https://sibinms.github.io/turnhuddle/screenshots/continue-light.png" alt="A picker listing recent Claude Code and Codex sessions over the Turnhuddle conversations list" width="900" />
 </picture>
 
-Conversations are saved on your machine. The chat header works like Claude Code's: **bookmark** the one you're in, open your **history** from the clock (bookmarked first, searchable), or start a **new** one. Run several at once, archive instead of delete. Started something in the Claude Code or Codex CLI? Pick that session and continue it here, with everything the agent already knows.
+Conversations are saved on your machine, each with a name: **Untitled** until you send the first message, then its first line; click the title to rename it. The chat header works like Claude Code's: **bookmark** the one you're in, open your **history** from the clock (bookmarked first, searchable), or start a **new** one. Run several at once, archive instead of delete. Started something in the Claude Code or Codex CLI? Pick that session and continue it here, with everything the agent already knows.
 
 ### And more
 
@@ -68,7 +68,7 @@ Conversations are saved on your machine. The chat header works like Claude Code'
 1. Install the [Claude Code CLI](https://code.claude.com/docs/en/cli-reference) and the Codex CLI, and sign in to each once in a terminal.
 2. Install **Turnhuddle** from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=Turnhuddle.turnhuddle), or download the VSIX from [Releases](https://github.com/sibinms/turnhuddle/releases) and run **Extensions: Install from VSIX…**.
 3. Run **Turnhuddle: Check CLI Installations** to confirm both CLIs are found.
-4. Open the Turnhuddle view in the Activity Bar, type a task and press **Enter**.
+4. Open the Turnhuddle view in the Activity Bar, type in **Ask Claude and Codex…** and press **Enter**.
 
 Turnhuddle finds the CLIs by itself: on your PATH, in common install folders, or bundled with the Claude Code and Codex VS Code extensions. If you keep them somewhere unusual, point `turnhuddle.claudePath` and `turnhuddle.codexPath` at them.
 
@@ -76,7 +76,7 @@ Turnhuddle finds the CLIs by itself: on your PATH, in common install folders, or
 
 | Setting | Default | What it does |
 |---|---|---|
-| `turnhuddle.roundMode` | `agreement` | `agreement`: agents alternate until both agree. `fixed`: Claude, Codex, Claude. |
+| `turnhuddle.roundMode` | `agreement` | `agreement`: agents alternate until both agree. `fixed`: Claude, Codex, Claude. The composer's mode chip switches it. |
 | `turnhuddle.maxTurnsPerRound` | `10` | Most agent turns in one agreement round (2–30). |
 | `turnhuddle.codexReasoningEffort` | `medium` | Codex's reasoning effort for Turnhuddle turns only. `inherit` uses your Codex config. |
 | `turnhuddle.claudeEffort` | `inherit` | Passes `--effort` to Claude: `low` to `max`. |
@@ -93,6 +93,7 @@ Turnhuddle finds the CLIs by itself: on your PATH, in common install folders, or
 | **Turnhuddle: Reply in Conversation** | Run another round on the open conversation. |
 | **Turnhuddle: Continue from a Claude Code or Codex Session** | Pick a CLI session to continue. |
 | **Turnhuddle: New Conversation** · **Cancel Conversation** | Clear the chat · stop the running round. |
+| **Turnhuddle: Rename Conversation** | Rename the open conversation (or click its title). |
 | **Turnhuddle: Check CLI Installations** · **Check for Updates** | Find the CLIs · look for a new version. |
 | **Turnhuddle: Reveal History Folder** | Open the folder where conversations are saved. |
 

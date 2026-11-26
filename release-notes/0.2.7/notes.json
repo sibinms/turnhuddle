@@ -1,0 +1,29 @@
+{
+  "version": "0.2.7",
+  "date": "2026-11-26",
+  "headline": "A new chat that looks like Claude Code's, and every conversation has a name",
+  "pill": "named conversations and a Claude Code-style new chat",
+  "summary": "A new conversation now opens like Claude Code's: the Turnhuddle wordmark, a tip, a What's new card and a single composer. Every conversation has a name from the start, and you can rename it from the header.",
+  "highlights": [
+    {
+      "tag": "Changed",
+      "title": "A new chat like Claude Code's",
+      "text": "The empty chat shows the Turnhuddle wordmark, Claude and Codex, a tip and, after an update, a dismissible **What's new** card. The composer says *Ask Claude and Codex…* and has a mode chip: **Until they agree** or **Fixed round**, which switches `turnhuddle.roundMode` with one click.",
+      "image": "welcome",
+      "alt": "The new Turnhuddle chat: the wordmark, the Claude and Codex avatars, a tip, a What's new in 0.2.7 card and the composer with the Until they agree chip"
+    },
+    {
+      "tag": "Added",
+      "title": "Every conversation has a name",
+      "text": "A new chat is **Untitled** until you send the first message; then it's named after its first line. Click the title in the header to rename it. Clearing the name brings the automatic one back. Names are saved and shown in the history.",
+      "image": "chat",
+      "alt": "A Turnhuddle conversation titled after its first message in the chat header"
+    }
+  ],
+  "improvements": [
+    "The send button is square with Claude's accent colour, and the composer's focus ring matches it.",
+    "The keyboard hint under the composer is gone; Enter sends and Shift+Enter adds a line, as before.",
+    "New command: **Turnhuddle: Rename Conversation**."
+  ],
+  "fixes": []
+}

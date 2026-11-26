@@ -40,10 +40,12 @@ test('summaries, archive and restore', () => {
   const manager = new SessionManager();
   manager.create('a', '  A long   task \n description ' + 'x'.repeat(100), '/w', at(0)); runRound(manager, 'a');
   manager.create('b', 'Task B', '/w', at(100));
+  const other = new SessionManager(); other.create('c', 'x'.repeat(200), '/w', at(50));
+  assert.ok(other.summaries()[0].title.length <= 60 && other.summaries()[0].title.endsWith('…'));
   const [first, second] = manager.summaries();
   assert.equal(first.id, 'b'); assert.equal(first.status, 'running'); assert.equal(first.rounds, 0);
   assert.equal(second.id, 'a'); assert.equal(second.status, 'completed'); assert.equal(second.rounds, 1); assert.equal(second.messages, 4);
-  assert.ok(second.title.startsWith('A long task description x')); assert.equal(second.title.length, 80); assert.ok(second.title.endsWith('…'));
+  assert.equal(second.title, 'A long task', 'named after the first line');
   assert.ok(manager.setArchived('b', true));
   assert.equal(manager.selectedId(), undefined, 'archiving the selected conversation deselects it');
   assert.deepEqual(manager.list().map(c => c.id), ['a']); assert.deepEqual(manager.archived().map(c => c.id), ['b']);
@@ -189,4 +191,17 @@ test('conversationIdFrom accepts an id, an object with id, or a conversation nod
   assert.equal(conversationIdFrom({ id: 'x' }), 'x');
   assert.equal(conversationIdFrom({ conversation: { id: 'y' } }), 'y');
   assert.equal(conversationIdFrom(undefined), undefined); assert.equal(conversationIdFrom(5), undefined);
+});
+test('titles are set at creation, renamed, reset when emptied, and saved', async () => {
+  const dir = tmp();
+  const manager = new SessionManager(new HistoryStore(dir), 10);
+  manager.create('a', 'Fix the flaky checkout test. It fails on CI only.', '/w', at(0));
+  assert.equal(manager.getConversation('a').title, 'Fix the flaky checkout test');
+  assert.ok(manager.setTitle('a', '  Checkout   flake  ')); assert.equal(manager.getConversation('a').title, 'Checkout flake');
+  assert.equal(manager.summaries()[0].title, 'Checkout flake');
+  await manager.flush(); await sleep(30);
+  const reloaded = new SessionManager(new HistoryStore(dir)); await reloaded.load();
+  assert.equal(reloaded.getConversation('a').title, 'Checkout flake');
+  assert.ok(manager.setTitle('a', '   ')); assert.equal(manager.getConversation('a').title, 'Fix the flaky checkout test', 'empty name restores the automatic title');
+  assert.equal(manager.setTitle('missing', 'x'), false);
 });

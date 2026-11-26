@@ -13,7 +13,7 @@ export interface Origin { provider: 'claude' | 'codex'; sessionId: string; title
 /** CLI session ids each agent keeps for this conversation, so later turns resume instead of replaying. */
 export type AgentSessions = Partial<Record<'claude' | 'codex', string>>;
 /** The conversation shown in the panel. All times are ISO strings. */
-export interface ConversationState { bookmarked?: boolean; status: Status; task?: string; id?: string; startedAt?: string; roundStartedAt?: string; finishedAt?: string; error?: string; messages: ViewMessage[]; partial?: PartialMessage; origin?: Origin; agentSessions?: AgentSessions; outcome?: RoundOutcome }
+export interface ConversationState { title?: string; bookmarked?: boolean; status: Status; task?: string; id?: string; startedAt?: string; roundStartedAt?: string; finishedAt?: string; error?: string; messages: ViewMessage[]; partial?: PartialMessage; origin?: Origin; agentSessions?: AgentSessions; outcome?: RoundOutcome }
 /** Optional webview URIs for the agents' logos, read from the user's own Claude Code / Codex extensions or media/logos/.
  * `…Dark` variants are used under dark themes. Absent: the built-in initials are used. */
 export type Logos = Partial<Record<'claude' | 'codex' | 'claudeDark' | 'codexDark', string>>;
@@ -80,10 +80,22 @@ export function formatDuration(fromIso: string, toIso: string): string {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 /** Short single-line title from the task. */
+/** Title for a conversation started with `task`: its first sentence or line, without Markdown, at most TITLE_CHARS, cut at a word. */
+export function autoTitle(task: string): string {
+  const firstLine = task.split('\n').map(l => l.trim()).find(Boolean) ?? '';
+  const plain = firstLine.replace(/[`*_#>]+/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\s+/g, ' ').trim();
+  const sentence = (plain.match(/^.+?[.?!](?=\s|$)/) ?? [plain])[0];
+  if (!sentence) return UNTITLED;
+  if (sentence.length <= TITLE_CHARS) return sentence.replace(/[.]$/, '');
+  const cut = sentence.slice(0, TITLE_CHARS - 1);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > TITLE_CHARS / 2 ? cut.slice(0, space) : cut).replace(/[,;:.\s]+$/, '')}…`;
+}
+export const UNTITLED = 'Untitled';
+/** The name shown for a conversation: one the user gave it, else the automatic one, else "Untitled". */
 export function conversationTitle(state: ConversationState): string {
-  const text = (state.task ?? '').replace(/\s+/g, ' ').trim();
-  if (!text) return 'New conversation';
-  return text.length > TITLE_CHARS ? `${text.slice(0, TITLE_CHARS - 1).trimEnd()}…` : text;
+  if (state.title?.trim()) return state.title.trim();
+  return state.task?.trim() ? autoTitle(state.task) : UNTITLED;
 }
 /** Agent turns taken so far in the current round. A round starts at `roundStartedAt`; messages from earlier rounds do not count. */
 export function turnsInRound(state: ConversationState): number {
@@ -144,6 +156,7 @@ const ICONS = {
   stop: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor"/></svg>',
   bookmark: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.5h7a.5.5 0 0 1 .5.5v10.6l-4-2.6-4 2.6V3a.5.5 0 0 1 .5-.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" fill="none"/></svg>',
   bookmarked: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.5h7a.5.5 0 0 1 .5.5v10.6l-4-2.6-4 2.6V3a.5.5 0 0 1 .5-.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" fill="currentColor"/></svg>',
+  close: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
   newChat: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5a5.5 5.5 0 0 1 0 11c-.9 0-1.8-.2-2.6-.6L2.5 13.5l.7-2.7A5.5 5.5 0 0 1 8 2.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" fill="none"/><path d="M8 5.8v4.4M5.8 8h4.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>'
 };
 /** Title row, laid out like Claude Code's: a state dot, the title, then Bookmark, History and New conversation.
@@ -151,12 +164,13 @@ const ICONS = {
 export function renderHeader(state: ConversationState): string {
   const idle = state.status === 'idle';
   const tooltip = state.id ? `Conversation ${state.id}` : 'No conversation yet';
-  const title = idle ? 'Turnhuddle' : conversationTitle(state);
+  const title = idle ? UNTITLED : conversationTitle(state);
   const label = statusLabel(state);
   const origin = state.origin && !idle ? `<span class="origin" title="${escapeHtml(`Continued from ${ROLE_LABELS[state.origin.provider]} session ${state.origin.sessionId}: ${state.origin.title}`)}">from ${escapeHtml(ROLE_LABELS[state.origin.provider])}</span>` : '';
   const dot = idle ? '' : `<span class="state" title="${escapeHtml(label)}"><i class="dot" aria-hidden="true"></i><span class="sr">${escapeHtml(label)}</span></span>`;
   const bookmark = `<button class="icon bookmark${state.bookmarked ? ' on' : ''}" type="button" data-command="bookmark" title="${state.bookmarked ? 'Remove bookmark' : 'Bookmark this conversation'}" aria-pressed="${state.bookmarked ? 'true' : 'false'}"${idle ? ' disabled' : ''}>${state.bookmarked ? ICONS.bookmarked : ICONS.bookmark}</button>`;
-  return `<header class="top status-${state.status}${state.outcome ? ` outcome-${state.outcome.kind}` : ''}">${dot}<span class="title" title="${escapeHtml(tooltip)}">${escapeHtml(title)}</span>${origin}${bookmark}<button class="icon" type="button" data-command="history" title="Conversation history">${ICONS.history}</button><button class="icon" type="button" data-command="new" title="New conversation"${idle ? ' disabled' : ''}>${ICONS.newChat}</button></header>`;
+  const titleEl = idle ? `<span class="title" title="${escapeHtml(tooltip)}">${escapeHtml(title)}</span>` : `<button class="title" type="button" data-command="rename" title="${escapeHtml(`Rename · ${tooltip}`)}">${escapeHtml(title)}</button>`;
+  return `<header class="top status-${state.status}${state.outcome ? ` outcome-${state.outcome.kind}` : ''}">${dot}${titleEl}${origin}${bookmark}<button class="icon" type="button" data-command="history" title="Conversation history">${ICONS.history}</button><button class="icon" type="button" data-command="new" title="New conversation"${idle ? ' disabled' : ''}>${ICONS.newChat}</button></header>`;
 }
 /** Values the static shell needs for its toolbar; sent alongside the HTML on every render. */
 export interface RenderMeta { status: Status; stage: number; round: number; turn: number; roundStartedAt?: string; finishedAt?: string; startedAt?: string; outcome?: RoundOutcome }
@@ -164,8 +178,25 @@ export function renderMeta(state: ConversationState): RenderMeta {
   return { status: state.status, stage: currentStage(state), round: rounds(state), turn: state.status === 'running' ? turnsInRound(state) + 1 : turnsInRound(state), roundStartedAt: state.roundStartedAt, finishedAt: state.finishedAt, startedAt: state.startedAt, ...(state.outcome ? { outcome: state.outcome } : {}) };
 }
 /** HTML fragment for the chat area (header, thread, notices). The composer lives in the static page, outside this fragment. */
-export function renderConversation(state: ConversationState, logos: Logos = {}): string {
-  if (state.status === 'idle') return `${renderHeader(state)}<section class="welcome"><div class="welcome-marks">${avatar('claude', logos)}${avatar('codex', logos)}</div><h1>Claude ↔ Codex</h1><p>Describe a task below. Claude proposes an approach, Codex reviews it, then Claude answers the critique. Reply to run another round on the same conversation.</p><p class="fine">Conversations are saved on this machine; open them from the history (the clock above). Several can run at once. The full text also goes to the Turnhuddle Output channel. CLI usage may incur charges.</p></section>`;
+/** Extra content for the welcome screen. */
+export interface WelcomeOptions { /** Show the "What's new in <version>" card for this version. */ whatsNew?: string }
+/** One-line tips under the wordmark, one shown per new conversation (chosen in the webview). */
+export const TIPS = [
+  'Claude proposes, Codex reviews, and they keep going until both agree.',
+  'Bookmark a conversation to keep it at the top of your history.',
+  'Reply to a finished round to dig deeper. Both agents see the whole conversation.',
+  'Continue a session you started in the Claude Code or Codex CLI from the history.',
+  'Click a conversation\u2019s title to rename it.',
+  'Set how hard Codex and Claude think in Turnhuddle\u2019s settings.'
+];
+const MARK = '<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" stroke="var(--th-claude)" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v5h-5" stroke="var(--th-claude)" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" stroke="var(--th-codex)" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 16H3v5" stroke="var(--th-codex)" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+/** The new-conversation screen, laid out like Claude Code's: wordmark, the two agents, a tip, and a dismissible what's-new card. */
+export function renderWelcome(logos: Logos = {}, options: WelcomeOptions = {}): string {
+  const card = options.whatsNew ? `<section class="whats-new"><header><span>What's new in ${escapeHtml(options.whatsNew)}</span><button class="icon" type="button" data-command="dismiss-whats-new" title="Dismiss">${ICONS.close}</button></header><p>See what changed in this version, with screenshots.</p><a href="https://sibinms.github.io/turnhuddle/whats-new/#v${escapeHtml(options.whatsNew)}">Read the release notes →</a></section>` : '';
+  return `<section class="welcome"><div class="wordmark">${MARK}<span>Turnhuddle</span></div><div class="welcome-marks">${avatar('claude', logos)}<i class="vs">⇄</i>${avatar('codex', logos)}</div><p class="tip" data-tips="${escapeHtml(JSON.stringify(TIPS))}">${escapeHtml(TIPS[0])}</p>${card}</section>`;
+}
+export function renderConversation(state: ConversationState, logos: Logos = {}, options: WelcomeOptions = {}): string {
+  if (state.status === 'idle') return `${renderHeader(state)}${renderWelcome(logos, options)}`;
   const running = state.status === 'running';
   const user = (content: string, time: string) => `<article class="msg msg-user"><div class="msg-meta"><time datetime="${escapeHtml(time)}">${formatTime(time)}</time></div><div class="user-card"><div class="content">${renderMarkdown(content)}</div></div></article>`;
   const verdictTag = (verdict?: Verdict) => verdict ? `<span class="verdict verdict-${verdict}" title="${verdict === 'agree' ? 'Considers the current recommendation final' : 'Wants further changes'}">${verdict === 'agree' ? 'agrees' : 'continues'}</span>` : '';
@@ -224,7 +255,18 @@ button:disabled { cursor: default; opacity: 0.4; }
 .verdict-continue { background: rgba(204, 167, 0, 0.16); color: var(--vscode-editorWarning-foreground, #cca700); }
 .done-agreed { color: var(--vscode-testing-iconPassed, #4cb04a); } .done-limit { color: var(--vscode-editorWarning-foreground, #cca700); }
 @keyframes pulse-dot { 50% { opacity: 0.35; } }
-.welcome { text-align: center; padding: 36px 10px 20px; }
+.welcome { text-align: center; padding: 28px 10px 20px; display: flex; flex-direction: column; align-items: center; }
+.wordmark { display: flex; align-items: center; gap: 8px; font: 500 1.75em/1.1 "Tiempos Text", "Iowan Old Style", Georgia, serif; letter-spacing: -0.01em; color: var(--vscode-foreground); margin: 6px 0 26px; }
+.wordmark .mark { width: 26px; height: 26px; }
+.welcome-marks { align-items: center; } .welcome-marks .vs { font-style: normal; color: var(--th-muted); font-size: 1.1em; }
+.welcome .avatar { width: 40px !important; height: 40px !important; font-size: 15px !important; }
+.tip { max-width: 30em; margin: 22px auto 26px !important; font-size: 1.02em; color: var(--th-muted); line-height: 1.55; }
+.whats-new { width: 100%; max-width: 420px; text-align: left; border: 1px solid var(--th-border); border-radius: 12px; background: var(--th-surface); overflow: hidden; }
+.whats-new header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--th-border); font-weight: 700; color: var(--th-claude); }
+.whats-new p { margin: 12px 14px 6px !important; color: var(--vscode-foreground) !important; }
+.whats-new a { display: inline-block; margin: 0 14px 14px; color: var(--vscode-textLink-foreground); text-decoration: none; } .whats-new a:hover { text-decoration: underline; }
+button.title { all: unset; flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text; border-radius: 4px; padding: 1px 3px; margin-left: -3px; }
+button.title:hover { background: var(--th-surface); } button.title:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
 .welcome-marks { display: flex; justify-content: center; gap: 8px; margin-bottom: 12px; }
 .welcome h1 { font-size: 1.2em; margin: 0 0 8px; } .welcome p { margin: 0 auto 8px; max-width: 34em; color: var(--th-muted); } .welcome .fine { font-size: 0.85em; opacity: 0.8; }
 .thread { display: flex; flex-direction: column; gap: 14px; }
@@ -271,7 +313,7 @@ body.vscode-dark img.logo-dark, body.vscode-high-contrast:not(.vscode-high-contr
 .done { margin: 14px 0 0; text-align: center; font-size: 0.82em; color: var(--th-muted); }
 .composer { flex: none; padding: 6px 12px 10px; background: var(--vscode-sideBar-background, inherit); }
 .composer-box { display: flex; flex-direction: column; border: 1px solid var(--vscode-input-border, var(--th-border)); border-radius: 12px; background: var(--vscode-input-background); box-shadow: 0 1px 4px rgba(0,0,0,0.12); }
-.composer-box:focus-within { border-color: var(--vscode-focusBorder); }
+.composer-box:focus-within { border-color: color-mix(in srgb, var(--th-claude) 75%, transparent); }
 body[data-status="running"] .composer-box { border-color: var(--vscode-focusBorder, var(--th-accent)); }
 textarea { width: 100%; box-sizing: border-box; min-height: 42px; max-height: 200px; padding: 10px 12px 4px; border: 0; outline: 0; resize: none; background: transparent; color: var(--vscode-input-foreground); font-family: inherit; font-size: inherit; line-height: 1.45; }
 textarea::placeholder { color: var(--vscode-input-placeholderForeground); } textarea:disabled { opacity: 0.6; }
@@ -290,9 +332,12 @@ body[data-status="running"] .run-status .spinner { display: inline-block; }
 body[data-status="running"] .pill { display: none; }
 .pill:hover { color: var(--vscode-foreground); }
 .spacer { flex: 1; }
-.round-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; }
+.round-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; }
+.mode { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 10px; font-size: 0.82em; color: var(--th-muted); white-space: nowrap; }
+.mode:hover { color: var(--vscode-foreground); background: var(--th-surface); }
+body[data-status="running"] .mode { display: none; }
 .round-btn svg { width: 15px; height: 15px; }
-#send { background: var(--th-accent); color: var(--th-accent-fg); } #send:hover:not(:disabled) { background: var(--vscode-button-hoverBackground, var(--th-accent)); }
+#send { background: color-mix(in srgb, var(--th-claude) 80%, black); color: #fff; } #send:hover:not(:disabled) { background: var(--vscode-button-hoverBackground, var(--th-accent)); }
 #send:disabled { opacity: 0.35; }
 #stop { display: none; background: var(--vscode-button-secondaryBackground, var(--th-surface)); color: var(--vscode-button-secondaryForeground, inherit); }
 #stop:hover { background: var(--vscode-button-secondaryHoverBackground, var(--th-surface)); }
@@ -305,17 +350,17 @@ body[data-status="running"] #stop { display: inline-flex; } body[data-status="ru
 <main id="root"></main>
 <footer class="composer">
   <div class="composer-box">
-    <textarea id="task" rows="1" maxlength="${MAX_TASK_CHARS}" placeholder="Describe a task for Claude and Codex to discuss…" aria-label="Task"></textarea>
+    <textarea id="task" rows="1" maxlength="${MAX_TASK_CHARS}" placeholder="Ask Claude and Codex…" aria-label="Message"></textarea>
     <div class="composer-bar">
       <span class="run-status"><i class="spinner" aria-hidden="true"></i><span id="run-text">Ready</span></span>
       <span class="relay" id="relay" title="Claude and Codex alternate until both agree (or the fixed three turns in fixed mode)"><span data-stage="0">Claude</span><i>⇄</i><span data-stage="1">Codex</span><span id="turn" class="turn"></span></span>
       <button id="effort" class="pill" type="button" data-command="settings" title="Turnhuddle settings"></button>
       <span class="spacer"></span>
+      <button id="mode" class="mode" type="button" data-command="mode" title="How a round ends. Click to switch."></button>
       <button id="stop" class="round-btn" type="button" data-command="cancel" title="Stop the running conversation">${ICONS.stop}</button>
-      <button id="send" class="round-btn" type="button" data-command="send" title="Send (Enter)">${ICONS.send}</button>
+      <button id="send" class="round-btn" type="button" data-command="send" title="Send (Enter · Shift+Enter for a new line)">${ICONS.send}</button>
     </div>
   </div>
-  <p class="hint">Enter to send · Shift+Enter for a new line</p>
 </footer>
 <script nonce="${nonce}">
 (function () {
@@ -363,10 +408,14 @@ body[data-status="running"] #stop { display: inline-flex; } body[data-status="ru
     document.body.dataset.status = status;
     const running = status === 'running';
     task.disabled = running; send.disabled = running;
-    task.placeholder = status === 'idle' ? 'Describe a task for Claude and Codex to discuss…' : running ? 'Conversation in progress…' : 'Reply to continue the conversation…';
+    task.placeholder = status === 'idle' ? 'Ask Claude and Codex…' : running ? 'Conversation in progress…' : 'Reply to continue the conversation…';
     runText.textContent = describe(meta);
     for (const stage of document.querySelectorAll('#relay [data-stage]')) { if (Number(stage.dataset.stage) === meta.stage) stage.setAttribute('data-active', ''); else stage.removeAttribute('data-active'); }
     document.getElementById('turn').textContent = running && meta.turn ? '· turn ' + meta.turn + (event.data.maxTurns ? ' of ≤' + event.data.maxTurns : '') : '';
+    const tip = root.querySelector('.tip[data-tips]');
+    if (tip) { try { const tips = JSON.parse(tip.dataset.tips); tip.textContent = tips[Math.floor(Math.random() * tips.length)]; } catch (e) { /* keep the first tip */ } }
+    const modeBtn = document.getElementById('mode');
+    if (typeof event.data.mode === 'string') modeBtn.textContent = event.data.mode === 'fixed' ? '⇉ Fixed round' : '⚡ Until they agree';
     if (typeof event.data.effort === 'string') { effort.textContent = event.data.effort; effort.style.display = event.data.effort ? '' : 'none'; }
     if (running) { tick(); if (!timer) timer = setInterval(tick, 1000); }
     if (atBottom || running) root.scrollTop = root.scrollHeight;
@@ -377,12 +426,15 @@ body[data-status="running"] #stop { display: inline-flex; } body[data-status="ru
   send.addEventListener('click', submit);
   document.getElementById('stop').addEventListener('click', () => vscode.postMessage({ command: 'cancel' }));
   effort.addEventListener('click', () => vscode.postMessage({ command: 'settings' }));
+  document.getElementById('mode').addEventListener('click', () => vscode.postMessage({ command: 'mode' }));
   root.addEventListener('click', event => {
     const button = event.target.closest('button[data-command]');
     if (!button || button.disabled) return;
     if (button.dataset.command === 'new') vscode.postMessage({ command: 'new' });
     else if (button.dataset.command === 'history') vscode.postMessage({ command: 'history' });
     else if (button.dataset.command === 'bookmark') vscode.postMessage({ command: 'bookmark' });
+    else if (button.dataset.command === 'rename') vscode.postMessage({ command: 'rename' });
+    else if (button.dataset.command === 'dismiss-whats-new') { button.closest('.whats-new').remove(); vscode.postMessage({ command: 'dismissWhatsNew' }); }
     else if (button.dataset.command === 'copy') vscode.postMessage({ command: 'copy', index: Number(button.dataset.index) });
   });
   vscode.postMessage({ command: 'ready' });

@@ -2,7 +2,7 @@
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { RoundOutcome } from './bridge';
-import { AgentSessions, ConversationState, initialState, Origin, startConversation } from './conversationView';
+import { AgentSessions, autoTitle, ConversationState, conversationTitle, initialState, Origin, startConversation } from './conversationView';
 /** A conversation as kept in memory and on disk. Streamed partial text is never stored. */
 export interface StoredConversation extends ConversationState { id: string; task: string; cwd: string; createdAt: string; updatedAt: string; archived: boolean }
 export interface SessionSummary { id: string; title: string; status: ConversationState['status']; createdAt: string; updatedAt: string; archived: boolean; bookmarked: boolean; messages: number; rounds: number; cwd: string; file?: string }
@@ -26,7 +26,7 @@ export function parseStored(value: unknown): StoredConversation | undefined {
   const interrupted = status === 'running' || status === 'idle';
   return {
     id: v.id, task: v.task, cwd: text('cwd') ?? '', createdAt: text('createdAt') ?? text('startedAt') ?? new Date(0).toISOString(), updatedAt: text('updatedAt') ?? text('finishedAt') ?? text('startedAt') ?? new Date(0).toISOString(),
-    archived: v.archived === true, ...(v.bookmarked === true ? { bookmarked: true } : {}), status: interrupted ? 'failed' : status, messages,
+    archived: v.archived === true, ...(v.bookmarked === true ? { bookmarked: true } : {}), ...(typeof v.title === 'string' && v.title.trim() ? { title: v.title.trim().slice(0, 200) } : {}), status: interrupted ? 'failed' : status, messages,
     startedAt: text('startedAt'), roundStartedAt: text('roundStartedAt'), finishedAt: text('finishedAt'),
     error: interrupted ? 'The window closed while this conversation was running.' : text('error'),
     ...(origin ? { origin } : {}), ...(agentSessions && Object.keys(agentSessions).length ? { agentSessions } : {}), ...(outcome && !interrupted ? { outcome } : {})
@@ -61,7 +61,7 @@ export class HistoryStore {
   }
 }
 export function summarize(conversation: StoredConversation, file?: string): SessionSummary {
-  const title = conversation.task.replace(/\s+/g, ' ').trim();
+  const title = conversationTitle(conversation);
   return { id: conversation.id, title: title.length > 80 ? `${title.slice(0, 79)}…` : title, status: conversation.status, createdAt: conversation.createdAt, updatedAt: conversation.updatedAt, archived: conversation.archived, bookmarked: conversation.bookmarked === true, messages: conversation.messages.length, rounds: conversation.messages.filter(m => m.role === 'user').length, cwd: conversation.cwd, file };
 }
 export type ListListener = () => void;
@@ -101,7 +101,7 @@ export class SessionManager {
   }
   /** Starts a new conversation and selects it; `origin` records the CLI session it continues from. */
   create(id: string, task: string, cwd: string, at: Date = new Date(), origin?: Origin): StoredConversation {
-    const conversation: StoredConversation = { ...startConversation(task, at), task, id, cwd, createdAt: at.toISOString(), updatedAt: at.toISOString(), archived: false, ...(origin ? { origin, agentSessions: { [origin.provider]: origin.sessionId } } : {}) };
+    const conversation: StoredConversation = { ...startConversation(task, at), task, title: autoTitle(task), id, cwd, createdAt: at.toISOString(), updatedAt: at.toISOString(), archived: false, ...(origin ? { origin, agentSessions: { [origin.provider]: origin.sessionId } } : {}) };
     this.sessions.set(id, conversation);
     this.selected = id;
     this.persist(id); this.notifyState(); this.notifyList();
@@ -117,6 +117,15 @@ export class SessionManager {
     if (!updated.partial || current.partial === undefined) this.persist(id);
     if (id === this.selected) this.notifyState();
     if (!updated.partial) this.notifyList();
+  }
+  /** Renames a conversation. An empty name goes back to the automatic one. Doesn't change its activity time. */
+  setTitle(id: string, title: string): boolean {
+    const current = this.sessions.get(id);
+    if (!current) return false;
+    const name = title.replace(/\s+/g, ' ').trim().slice(0, 200);
+    this.sessions.set(id, { ...current, title: name || autoTitle(current.task) });
+    this.persist(id, true); if (id === this.selected) this.notifyState(); this.notifyList();
+    return true;
   }
   /** Marks a conversation as bookmarked (or not). Doesn't change its activity time. */
   setBookmarked(id: string, bookmarked: boolean): boolean {

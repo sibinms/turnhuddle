@@ -69,8 +69,8 @@ test('store notifies subscribers and supports unsubscribe', () => {
   assert.equal(store.get().status, 'idle');
 });
 test('title, stage and meta derive from the state', () => {
-  assert.equal(conversationTitle(initialState()), 'New conversation');
-  assert.equal(conversationTitle(startConversation('  Dedupe\n\nstrings  ', t0)), 'Dedupe strings');
+  assert.equal(conversationTitle(initialState()), 'Untitled');
+  assert.equal(conversationTitle(startConversation('  Dedupe\n\nstrings  ', t0)), 'Dedupe', 'the first line names it');
   const long = conversationTitle(startConversation('x'.repeat(200), t0));
   assert.equal(long.length, TITLE_CHARS); assert.ok(long.endsWith('…'));
   let state = startConversation('Task', t0);
@@ -84,9 +84,9 @@ test('title, stage and meta derive from the state', () => {
 });
 test('idle render is a welcome screen under the title row, with Bookmark and New disabled and no thread', () => {
   const html = renderConversation(initialState());
-  assert.match(html, /^<header class="top status-idle"><span class="title" title="No conversation yet">Turnhuddle<\/span><button class="icon bookmark" type="button" data-command="bookmark" title="Bookmark this conversation" aria-pressed="false" disabled>.*?<\/button><button class="icon" type="button" data-command="history" title="Conversation history">.*?<\/button><button class="icon" type="button" data-command="new" title="New conversation" disabled>/);
+  assert.match(html, /^<header class="top status-idle"><span class="title" title="No conversation yet">Untitled<\/span><button class="icon bookmark" type="button" data-command="bookmark" title="Bookmark this conversation" aria-pressed="false" disabled>.*?<\/button><button class="icon" type="button" data-command="history" title="Conversation history">.*?<\/button><button class="icon" type="button" data-command="new" title="New conversation" disabled>/);
   assert.doesNotMatch(html, /class="state"/, 'no state dot before a conversation exists');
-  assert.match(html, /<section class="welcome">/); assert.match(html, /<h1>Claude ↔ Codex<\/h1>/); assert.match(html, /Describe a task below/);
+  assert.match(html, /<section class="welcome"><div class="wordmark"><svg class="mark"[^]*?<span>Turnhuddle<\/span><\/div>/); assert.match(html, /<p class="tip" data-tips="[^"]+">Claude proposes, Codex reviews/);
   assert.match(html, /avatar-claude.*avatar-codex/s, 'both marks shown');
   assert.doesNotMatch(html, /<article/); assert.doesNotMatch(html, /thinking/);
   assert.equal(count(html, /<button/g), 3, 'only Bookmark, History and New');
@@ -94,8 +94,8 @@ test('idle render is a welcome screen under the title row, with Bookmark and New
 test('title row: state dot, title with ID tooltip, then Bookmark, History and New like Claude Code', () => {
   const state = receiveMessage(startConversation('Propose a dedupe function', t0), ID, { role: 'user', content: 'Propose a dedupe function' }, t0);
   let header = renderHeader(state);
-  assert.match(header, /^<header class="top status-running"><span class="state" title="Running"><i class="dot" aria-hidden="true"><\/i><span class="sr">Running<\/span><\/span><span class="title" title="Conversation 4652f392-1c6f-4669-8ea1-c3e6a80175ff">Propose a dedupe function<\/span>/);
-  assert.deepEqual(header.match(/data-command="(\w+)"/g), ['data-command="bookmark"', 'data-command="history"', 'data-command="new"'], 'buttons in Claude Code order');
+  assert.match(header, /^<header class="top status-running"><span class="state" title="Running"><i class="dot" aria-hidden="true"><\/i><span class="sr">Running<\/span><\/span><button class="title" type="button" data-command="rename" title="Rename · Conversation 4652f392-1c6f-4669-8ea1-c3e6a80175ff">Propose a dedupe function<\/button>/);
+  assert.deepEqual(header.match(/data-command="(\w+)"/g), ['data-command="rename"', 'data-command="bookmark"', 'data-command="history"', 'data-command="new"'], 'title, then the buttons in Claude Code order');
   assert.match(header, /data-command="new" title="New conversation">/, 'New stays available while running: it opens a fresh conversation, this one keeps running');
   assert.match(header, /data-command="bookmark" title="Bookmark this conversation" aria-pressed="false">/);
   const marked = renderHeader({ ...state, bookmarked: true });
@@ -233,7 +233,8 @@ test('page is a chat shell: toolbar composer with send/stop, relay and effort pi
   assert.match(html, /default-src 'none'; img-src vscode-resource: data:; style-src vscode-resource: 'nonce-abc123'; script-src 'nonce-abc123';/);
   assert.match(html, /<script nonce="abc123">/); assert.match(html, /<style nonce="abc123">/);
   assert.match(html, /<body data-status="idle">/); assert.match(html, /<main id="root"><\/main>/);
-  assert.match(html, new RegExp(`<textarea id="task" rows="1" maxlength="${MAX_TASK_CHARS}" placeholder="Describe a task`));
+  assert.match(html, new RegExp(`<textarea id="task" rows="1" maxlength="${MAX_TASK_CHARS}" placeholder="Ask Claude and Codex…"`));
+  assert.match(html, /<button id="mode" class="mode" type="button" data-command="mode"/); assert.doesNotMatch(html, /Enter to send ·/);
   assert.match(html, /<span id="run-text">Ready<\/span>/); assert.match(html, /<span class="relay" id="relay"[^>]*><span data-stage="0">Claude<\/span><i>⇄<\/i><span data-stage="1">Codex<\/span><span id="turn" class="turn"><\/span><\/span>/);
   assert.match(html, /<button id="effort" class="pill" type="button" data-command="settings"/);
   assert.match(html, /<button id="stop" class="round-btn" type="button" data-command="cancel"/); assert.match(html, /<button id="send" class="round-btn" type="button" data-command="send"/);
@@ -305,4 +306,25 @@ test('logos with a dark variant render both images, switched by the VS Code them
   assert.equal(avatar('claude', { claude: 'u/c.svg', claudeDark: 'u/c.svg' }), '<img class="avatar avatar-claude" src="u/c.svg" alt="Claude">', 'one image when both variants are the same file');
   const page = renderPage('n', 'src:');
   assert.match(page, /img\.logo-dark \{ display: none; \}/); assert.match(page, /body\.vscode-dark img\.logo-light/);
+});
+const { autoTitle, renderWelcome, TIPS, UNTITLED } = view;
+test('conversations are named: Untitled, then after the first message, or what the user chose', () => {
+  assert.equal(UNTITLED, 'Untitled');
+  assert.equal(autoTitle('Add rate limiting to POST /login. Brute-force attempts are in the logs.'), 'Add rate limiting to POST /login');
+  assert.equal(autoTitle('  \n**Review** this [PR](https://x.y/1) please?\nsecond line'), 'Review this PR please?');
+  const long = autoTitle('Investigate why the nightly export job for merchant invoices sometimes produces duplicate rows in the warehouse');
+  assert.ok(long.length <= 60 && long.endsWith('…') && !/\s…$/.test(long), long);
+  assert.equal(autoTitle('   '), 'Untitled');
+  assert.equal(conversationTitle({ ...startConversation('Task text here', t0), title: '  My name  ' }), 'My name');
+  assert.equal(conversationTitle(startConversation('Task text here', t0)), 'Task text here');
+});
+test('welcome screen: wordmark, both agents, a tip, and the what\'s-new card only when asked', () => {
+  const plain = renderWelcome();
+  assert.match(plain, /<div class="wordmark">/); assert.match(plain, /avatar-claude.*class="vs">⇄<\/i>.*avatar-codex/s);
+  assert.equal(JSON.parse(plain.match(/data-tips="([^"]+)"/)[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')).length, TIPS.length);
+  assert.doesNotMatch(plain, /whats-new/);
+  const withCard = renderWelcome({}, { whatsNew: '0.2.7' });
+  assert.match(withCard, /<section class="whats-new"><header><span>What's new in 0.2.7<\/span><button class="icon" type="button" data-command="dismiss-whats-new" title="Dismiss">/);
+  assert.match(withCard, /href="https:\/\/sibinms.github.io\/turnhuddle\/whats-new\/#v0.2.7"/);
+  assert.match(renderConversation(initialState(), {}, { whatsNew: '0.2.7' }), /What's new in 0.2.7/);
 });

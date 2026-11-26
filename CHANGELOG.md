@@ -2,6 +2,15 @@
 
 All notable changes to Turnhuddle are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 0.2.7 — 2026-11-26
+
+### Added
+- Every conversation has a name: **Untitled** until the first message, then its first line. Click the header title (or run **Turnhuddle: Rename Conversation**) to rename; an empty name restores the automatic one.
+
+### Changed
+- The new-chat screen looks like Claude Code's: wordmark, both agents, a tip and a dismissible **What's new** card after updates.
+- Composer: *Ask Claude and Codex…*, a mode chip (**Until they agree** / **Fixed round**) that switches `turnhuddle.roundMode`, a square send button, no hint line.
+
 ## 0.2.6 — 2026-11-26
 
 ### Fixed

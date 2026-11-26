@@ -2,7 +2,7 @@
   "name": "turnhuddle",
   "displayName": "Turnhuddle",
   "description": "Claude Code and Codex in one chat: Claude proposes, Codex reviews, and they keep going until both agree.",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "publisher": "turnhuddle",
   "license": "MIT",
   "repository": {
@@ -50,7 +50,7 @@
       },
       {
         "command": "turnhuddle.start",
-        "title": "Start Claude \u2194 Codex Conversation",
+        "title": "Start Claude ↔ Codex Conversation",
         "category": "Turnhuddle"
       },
       {
@@ -136,6 +136,12 @@
         "title": "Bookmark Conversation",
         "category": "Turnhuddle",
         "icon": "$(bookmark)"
+      },
+      {
+        "command": "turnhuddle.rename",
+        "title": "Rename Conversation",
+        "category": "Turnhuddle",
+        "icon": "$(edit)"
       }
     ],
     "configuration": {
