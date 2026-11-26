@@ -1,5 +1,5 @@
 # Publishes to the Visual Studio Marketplace when a version tag (v1.2.3) is pushed, after checking that
-# release-notes/<version>/notes.json exists. The Website workflow then republishes the site with the new notes.
+# release-notes/<version>/notes.json exists. It then starts the Website workflow to republish the site with the new notes.
 # Authentication is Marketplace trusted publishing: no token is stored. The publisher's policy names this
 # repository, this file (release.yml) and the "marketplace" environment, so all three must stay as they are.
 name: Release
@@ -16,6 +16,7 @@ jobs:
     permissions:
       contents: write   # create the GitHub Release
       id-token: write   # request the OIDC token the Marketplace exchanges
+      actions: write    # start the Website workflow afterwards
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,3 +44,7 @@ jobs:
         run: |
           node scripts/whats-new.cjs markdown "${VERSION}" > release-notes.md
           gh release create "${GITHUB_REF_NAME}" "turnhuddle-${VERSION}.vsix" --title "Turnhuddle ${VERSION}" --notes-file release-notes.md
+      - name: Update the website
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref main

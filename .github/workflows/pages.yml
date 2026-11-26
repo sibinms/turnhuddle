@@ -1,6 +1,6 @@
 # Builds the website from site/ and release-notes/ and publishes it to GitHub Pages:
 # https://sibinms.github.io/turnhuddle/
-# Runs when the site or the notes change on main, after each Release, or by hand.
+# Runs when the site or the notes change on main, when the Release workflow dispatches it after publishing, or by hand.
 # Only released versions (those with a v* tag) appear on the What's new page.
 name: Website
 on:
@@ -11,9 +11,6 @@ on:
       - "release-notes/**"
       - "scripts/whats-new.cjs"
       - ".github/workflows/pages.yml"
-  workflow_run:
-    workflows: [Release]
-    types: [completed]
   workflow_dispatch:
 concurrency:
   group: pages
@@ -24,7 +21,6 @@ permissions:
   id-token: write
 jobs:
   deploy:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -45,5 +41,15 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
-      - id: deployment
+      # GitHub sometimes can't see the artifact uploaded a moment earlier ("No artifacts named github-pages");
+      # the documented remedy is to try again shortly after, so one retry is built in.
+      - id: first
+        continue-on-error: true
         uses: actions/deploy-pages@v4
+      - if: steps.first.outcome == 'failure'
+        run: sleep 30
+      - id: retry
+        if: steps.first.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+      - id: deployment
+        run: echo "page_url=${{ steps.first.outputs.page_url || steps.retry.outputs.page_url }}" >> "$GITHUB_OUTPUT"
