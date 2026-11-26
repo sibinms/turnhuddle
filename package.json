@@ -2,7 +2,7 @@
   "name": "turnhuddle",
   "displayName": "Turnhuddle",
   "description": "Claude Code and Codex in one chat: Claude proposes, Codex reviews, and they keep going until both agree.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "publisher": "turnhuddle",
   "license": "MIT",
   "repository": {
@@ -133,13 +133,13 @@
           "type": "string",
           "default": "claude",
           "scope": "machine",
-          "description": "Claude executable path, without arguments."
+          "description": "Claude Code CLI executable. Leave as \"claude\" to find it automatically: on PATH, in common install folders, in your login shell's PATH, or bundled with the Claude Code VS Code extension. Set a full path to override."
         },
         "turnhuddle.codexPath": {
           "type": "string",
           "default": "codex",
           "scope": "machine",
-          "description": "Codex executable path, without arguments."
+          "description": "Codex CLI executable. Leave as \"codex\" to find it automatically: on PATH, in common install folders, in your login shell's PATH, or bundled with the Codex (OpenAI) VS Code extension. Set a full path to override."
         },
         "turnhuddle.timeoutSeconds": {
           "type": "number",

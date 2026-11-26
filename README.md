@@ -70,7 +70,7 @@ Conversations are saved on your machine and listed with their state. Reopen any 
 3. Run **Turnhuddle: Check CLI Installations** to confirm both CLIs are found.
 4. Open the Turnhuddle view in the Activity Bar, type a task and press **Enter**.
 
-If the CLIs aren't on VS Code's path, point `turnhuddle.claudePath` and `turnhuddle.codexPath` at them.
+Turnhuddle finds the CLIs by itself: on your PATH, in common install folders, or bundled with the Claude Code and Codex VS Code extensions. If you keep them somewhere unusual, point `turnhuddle.claudePath` and `turnhuddle.codexPath` at them.
 
 ## Settings
 
@@ -80,7 +80,7 @@ If the CLIs aren't on VS Code's path, point `turnhuddle.claudePath` and `turnhud
 | `turnhuddle.maxTurnsPerRound` | `10` | Most agent turns in one agreement round (2–30). |
 | `turnhuddle.codexReasoningEffort` | `medium` | Codex's reasoning effort for Turnhuddle turns only. `inherit` uses your Codex config. |
 | `turnhuddle.claudeEffort` | `inherit` | Passes `--effort` to Claude: `low` to `max`. |
-| `turnhuddle.claudePath`, `turnhuddle.codexPath` | `claude`, `codex` | Executables, if they aren't on VS Code's path. |
+| `turnhuddle.claudePath`, `turnhuddle.codexPath` | `claude`, `codex` | Leave as is to find the CLIs automatically, or set a full path. |
 | `turnhuddle.timeoutSeconds` | `180` | Per-turn time limit. |
 | `turnhuddle.checkForUpdates` | `true` | Daily check for a newer release on GitHub. |
 

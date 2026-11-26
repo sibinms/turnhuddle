@@ -2,6 +2,15 @@
 
 All notable changes to Turnhuddle are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 0.2.3 — 2026-11-26
+
+### Fixed
+- "Cannot run claude: spawn claude ENOENT" when the CLIs aren't on PATH. With the path settings left at their defaults, Turnhuddle now finds the Claude Code and Codex CLIs on PATH, in common install folders, in the login shell's PATH, or bundled with the Claude Code and Codex VS Code extensions.
+
+### Changed
+- **Check CLI Installations** reports where each CLI was found.
+- A missing CLI is reported before a conversation starts, with **Open Settings** and **Check Again**.
+
 ## 0.2.2 — 2026-11-26
 
 ### Fixed

@@ -72,6 +72,26 @@ const steps = async (report, save) => {
   assert.equal(check.length, 3);
   assert.match(check[0], /^claude: \d+\.\d+\.\d+/); assert.match(check[1], /^codex: codex-cli \d+/);
   report.steps.check = check;
+  // 1b. With both paths left at their defaults the CLIs are found automatically (here: bundled in the vendor extensions,
+  // since neither is on PATH on this machine) and a real round runs with them.
+  log('step 1b: automatic CLI detection');
+  await config.update('claudePath', 'claude', vscode.ConfigurationTarget.Global);
+  await config.update('codexPath', 'codex', vscode.ConfigurationTarget.Global);
+  try {
+    const detected = await vscode.commands.executeCommand('turnhuddle.check');
+    log('detected:', detected);
+    assert.match(detected[0], /^claude: \d+\.\d+\.\d+.*\((on PATH|installed|from your shell PATH|bundled with the VS Code extension): \//);
+    assert.match(detected[1], /^codex: codex-cli \d+.*\((on PATH|installed|from your shell PATH|bundled with the VS Code extension): \//);
+    assert.equal(vscode.workspace.getConfiguration('turnhuddle').get('claudePath'), 'claude', 'settings left untouched');
+    const auto = await vscode.commands.executeCommand('turnhuddle.start', { task: 'Reply with one short sentence naming a good variable name for a list of unique emails. Do not create or modify files.', source: 'sidebar' });
+    report.steps.autoDetect = { detected, status: auto.status, error: auto.error, roles: auto.messages.map(m => m.role) };
+    assert.equal(auto.status, 'completed', auto.error);
+    assert.deepEqual(auto.messages.map(m => m.role), ['user', 'claude', 'codex', 'claude']);
+  } finally {
+    await config.update('claudePath', claudePath, vscode.ConfigurationTarget.Global);
+    await config.update('codexPath', codexPath, vscode.ConfigurationTarget.Global);
+  }
+  assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
   // 2. Cancellation mid-invocation
   log('step 2: cancellation'); save();
   assert.equal(await vscode.commands.executeCommand('turnhuddle.cancel'), false, 'cancel with nothing running returns false');
@@ -170,7 +190,7 @@ const steps = async (report, save) => {
   log('step 6: history'); save();
   let list = await vscode.commands.executeCommand('turnhuddle.listSessions');
   assert.deepEqual(list, api.listSessions());
-  assert.deepEqual(list.map(e => e.status), ['completed', 'failed', 'cancelled'], 'newest first: the conversation, then the invalid-path and cancelled ones from steps 3 and 2');
+  assert.deepEqual(list.map(e => e.status), ['completed', 'failed', 'cancelled', 'completed'], 'newest first: the conversation, then the invalid-path, cancelled and auto-detect ones from steps 3, 2 and 1b');
   const entry = list[0];
   assert.equal(entry.id, result.id); assert.equal(entry.status, 'completed'); assert.equal(entry.rounds, 2); assert.equal(entry.messages, 8); assert.equal(entry.archived, false);
   assert.equal(entry.cwd, folder); assert.ok(entry.file && entry.file.startsWith(api.historyDir()), `file ${entry.file} under ${api.historyDir()}`);
@@ -180,7 +200,7 @@ const steps = async (report, save) => {
   assert.equal(saved.id, result.id); assert.equal(saved.status, 'completed'); assert.equal(saved.messages.length, 8); assert.equal(saved.partial, undefined); assert.equal(saved.task, TASK);
   assert.equal(await vscode.commands.executeCommand('turnhuddle.clear'), true);
   assert.deepEqual(await sameState(), { status: 'idle', messages: [] }, 'New shows the welcome state');
-  assert.equal((await vscode.commands.executeCommand('turnhuddle.listSessions')).length, 3, 'New keeps the conversations in the list');
+  assert.equal((await vscode.commands.executeCommand('turnhuddle.listSessions')).length, 4, 'New keeps the conversations in the list');
   assert.equal(await vscode.commands.executeCommand('turnhuddle.open', result.id), true);
   const reopened = await sameState();
   assert.equal(reopened.id, result.id); assert.equal(reopened.status, 'completed'); assert.equal(reopened.messages.length, 8); assert.equal(reopened.task, TASK);
@@ -208,9 +228,9 @@ const steps = async (report, save) => {
   assert.notEqual(both[0].id, both[1].id); assert.deepEqual(new Set(runningIds), new Set(both.map(r => r.id)));
   assert.equal(api.runningIds().length, 0);
   list = await vscode.commands.executeCommand('turnhuddle.listSessions');
-  assert.equal(list.length, 5); assert.deepEqual(list.slice(0, 2).map(s => s.status), ['completed', 'completed']);
-  assert.equal(await vscode.commands.executeCommand('turnhuddle.refreshSessions'), 5, 'reloading from disk finds the same five, no duplicates');
-  assert.equal((await vscode.commands.executeCommand('turnhuddle.listSessions')).length, 5);
+  assert.equal(list.length, 6); assert.deepEqual(list.slice(0, 2).map(s => s.status), ['completed', 'completed']);
+  assert.equal(await vscode.commands.executeCommand('turnhuddle.refreshSessions'), 6, 'reloading from disk finds the same six, no duplicates');
+  assert.equal((await vscode.commands.executeCommand('turnhuddle.listSessions')).length, 6);
   assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
   assert.equal(snapshot(folder), before, 'workspace files changed during the concurrent conversations');
   // 8. Continue from a real Claude Code session: create one directly with the CLI in the workspace folder, then continue it in Turnhuddle

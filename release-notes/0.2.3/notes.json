@@ -1,0 +1,18 @@
+{
+  "version": "0.2.3",
+  "date": "2026-11-26",
+  "headline": "Works with the Claude Code and Codex extensions you already have",
+  "pill": "finds Claude Code and Codex on its own, even inside their VS Code extensions",
+  "summary": "You no longer need the Claude Code and Codex command-line tools on your PATH. Turnhuddle now finds them itself, including the copies that come with the Claude Code and Codex VS Code extensions.",
+  "highlights": [
+    {
+      "tag": "Fixed",
+      "title": "No more \"Cannot run claude\"",
+      "text": "If you use Claude Code or Codex through their VS Code extensions, the command-line tools live inside those extensions, not on your PATH, and Turnhuddle failed with **Cannot run claude**. It now looks on your PATH, in the usual install folders, in your login shell's PATH (for VS Code opened from the Dock), and finally inside the Claude Code and Codex extensions. **Turnhuddle: Check CLI Installations** shows which copy it found and where. A path you set in `turnhuddle.claudePath` or `turnhuddle.codexPath` still wins."
+    }
+  ],
+  "improvements": [
+    "If a CLI can't be found, Turnhuddle says what to install and offers **Open Settings** and **Check Again**, instead of starting a conversation that fails.",
+    "The Turnhuddle Output channel notes which CLI copy each session uses."
+  ]
+}

@@ -9,6 +9,7 @@ import { listVendorSessions, VendorSession } from './vendorSessions';
 import { conversationIdFrom, SessionsTreeProvider } from './sessionsTree';
 import { ConversationViewProvider } from './sidebar';
 import { checkDue, checkForUpdate, downloadVsix, Fetcher, UpdateCheck } from './updates';
+import { Agent, defaultExtensionRoots, locate, Located, loginShellLookup, SOURCE_LABELS } from './cliLocator';
 /** Returned by `turnhuddle.start` and `turnhuddle.reply` so callers (keybindings, automation, tests) can inspect the outcome of the round they ran. */
 export type StartResult = { status: 'completed' | 'cancelled' | 'failed' | 'skipped'; id?: string; messages: Message[]; error?: string };
 /** `task`/`message` skip the input box; `source: 'sidebar'` means the chat panel sent it, so the Output channel is written to but not raised. */
@@ -42,6 +43,28 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
   syncRunning();
   const settings = () => vscode.workspace.getConfiguration('turnhuddle');
   const ask = (title: string, prompt: string) => vscode.window.showInputBox({ title, prompt, ignoreFocusOut: true, validateInput: value => value.trim() ? (value.length > MAX_TASK_CHARS ? `Keep it below ${MAX_TASK_CHARS.toLocaleString()} characters.` : undefined) : 'Enter a message.' });
+  // ---------- finding the CLIs ----------
+  const VENDOR = { claude: { ext: 'anthropic.claude-code', name: 'Claude Code' }, codex: { ext: 'openai.chatgpt', name: 'Codex' } } as const;
+  const shellLookup = process.platform === 'win32' ? undefined : loginShellLookup();
+  const found = new Map<string, Located>();
+  /** The CLI to run for an agent, from the setting or found automatically (cached while the file exists). */
+  const findCli = async (agent: Agent): Promise<Located | undefined> => {
+    const configured = settings().get<string>(`${agent}Path`, agent);
+    const key = `${agent}:${configured}`;
+    const cached = found.get(key);
+    if (cached && (cached.source === 'setting' || existsSync(cached.path))) return cached;
+    const result = await locate(agent, configured, { home: homedir(), platform: process.platform, envPath: process.env.PATH, shellLookup, extensionDirs: { [agent]: vscode.extensions.getExtension(VENDOR[agent].ext)?.extensionPath }, extensionRoots: defaultExtensionRoots(homedir()) });
+    if (result) found.set(key, result); else found.delete(key);
+    if (result && result.source !== 'setting' && !cached) output.appendLine(`Using ${VENDOR[agent].name} CLI ${SOURCE_LABELS[result.source]}: ${result.path}`);
+    return result;
+  };
+  const missingCliMessage = (agent: Agent) => `Turnhuddle couldn't find the ${VENDOR[agent].name} CLI. Install the ${VENDOR[agent].name} CLI or the ${VENDOR[agent].name} VS Code extension and sign in, or set turnhuddle.${agent}Path to the executable.`;
+  const reportMissing = async (agent: Agent) => {
+    output.appendLine(missingCliMessage(agent));
+    const choice = await vscode.window.showErrorMessage(missingCliMessage(agent), 'Open Settings', 'Check Again');
+    if (choice === 'Open Settings') await vscode.commands.executeCommand('workbench.action.openSettings', `turnhuddle.${agent}Path`);
+    else if (choice === 'Check Again') { found.clear(); await vscode.commands.executeCommand('turnhuddle.check'); }
+  };
   const workspaceFolder = () => { const folders = vscode.workspace.workspaceFolders; return folders?.length === 1 && folders[0].uri.scheme === 'file' ? folders[0].uri.fsPath : undefined; };
   const vendorSessions = (all?: boolean) => listVendorSessions({ home: homedir(), cwd: all ? undefined : workspaceFolder(), limit: 30 });
   /** Runs one round: a new conversation when `id` is undefined (continuing from `origin` when given), otherwise a follow-up on that conversation. Several conversations may run at once; one conversation runs one round at a time. */
@@ -60,6 +83,8 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
       const text = preset ?? await ask(title, prompt);
       if (!text) return { status: 'skipped', messages };
       if (id && running.has(id)) return { status: 'skipped', id, messages };
+      const [claudeCli, codexCli] = [await findCli('claude'), await findCli('codex')];
+      if (!claudeCli || !codexCli) { void reportMissing(!claudeCli ? 'claude' : 'codex'); return { status: 'failed', id: conversationId, messages, error: missingCliMessage(!claudeCli ? 'claude' : 'codex') }; }
       const cwd = existing?.cwd && existsSync(existing.cwd) ? existing.cwd : folder.uri.fsPath;
       const config = settings();
       const controller = new AbortController();
@@ -90,8 +115,8 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
           const subscription = token.onCancellationRequested(() => controller.abort());
           try {
             const result = await relay(target, text, {
-              claude: claudeAdapter(config.get<string>('claudePath', 'claude'), limits, config.get<Effort>('claudeEffort', 'inherit'), sessionFor('claude')),
-              codex: codexAdapter(config.get<string>('codexPath', 'codex'), limits, config.get<string>('codexReasoningEffort', 'medium'), sessionFor('codex'))
+              claude: claudeAdapter(claudeCli.path, limits, config.get<Effort>('claudeEffort', 'inherit'), sessionFor('claude')),
+              codex: codexAdapter(codexCli.path, limits, config.get<string>('codexReasoningEffort', 'medium'), sessionFor('codex'))
             }, (_id, message) => {
               messages.push(message);
               sessions.update(thisId, state => receiveMessage(state, thisId, message));
@@ -135,10 +160,12 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
     output.show(true);
     const lines: string[] = [];
     const report = (line: string) => { lines.push(line); output.appendLine(line); };
+    found.clear();
     for (const agent of ['claude', 'codex'] as const) {
-      const executable = settings().get<string>(`${agent}Path`, agent);
-      try { report(`${agent}: ${await run(executable, ['--version'], '', { cwd: context.extensionPath, timeoutMs: 10000, maxBytes: 65536 })}`); }
-      catch (error) { report(`${agent}: ${String(error)}`); }
+      const cli = await findCli(agent);
+      if (!cli) { report(`${agent}: not found. ${missingCliMessage(agent)}`); continue; }
+      try { report(`${agent}: ${await run(cli.path, ['--version'], '', { cwd: context.extensionPath, timeoutMs: 10000, maxBytes: 65536 })} (${SOURCE_LABELS[cli.source]}: ${cli.path})`); }
+      catch (error) { report(`${agent}: ${String(error)} (${SOURCE_LABELS[cli.source]}: ${cli.path})`); }
     }
     report('Version checks do not verify authentication. Sign in with each CLI in a terminal.');
     return lines;
