@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Turnhuddle: Claude Code and Codex in One VS Code Chat, Until They Agree</title>
+  <meta name="description" content="Turnhuddle is a free VS Code extension that puts Claude Code and Codex in one conversation. Claude proposes, Codex reviews, and they keep going until both agree. Uses the CLIs and logins you already have." />
+  <link rel="canonical" href="https://sibinms.github.io/turnhuddle/" />
+  <meta name="theme-color" content="#d97757" />
+  <link rel="icon" type="image/png" href="icon.png" />
+  <link rel="apple-touch-icon" href="icon.png" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Turnhuddle" />
+  <meta property="og:title" content="Turnhuddle: Claude and Codex, in one conversation" />
+  <meta property="og:description" content="A VS Code extension where Claude Code proposes, Codex reviews, and they keep going until both agree." />
+  <meta property="og:url" content="https://sibinms.github.io/turnhuddle/" />
+  <meta property="og:image" content="https://sibinms.github.io/turnhuddle/screenshots/og-poster.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Turnhuddle: Claude and Codex, in one conversation" />
+  <meta name="twitter:description" content="Claude Code proposes, Codex reviews, and they keep going until both agree. In VS Code." />
+  <meta name="twitter:image" content="https://sibinms.github.io/turnhuddle/screenshots/og-poster.png" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Turnhuddle",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "macOS (Visual Studio Code)",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "description": "A Visual Studio Code extension that runs Claude Code and Codex in one conversation: Claude proposes, Codex reviews, and they alternate until both agree. Uses the official command-line tools and the logins you already have.",
+    "url": "https://sibinms.github.io/turnhuddle/",
+    "screenshot": "https://sibinms.github.io/turnhuddle/screenshots/og-poster.png",
+    "downloadUrl": "https://marketplace.visualstudio.com/items?itemName=Turnhuddle.turnhuddle",
+    "license": "https://opensource.org/licenses/MIT",
+    "featureList": [
+      "Claude Code and Codex in one chat panel",
+      "Rounds that end when both agents agree",
+      "Claude's reply streams in as it is written",
+      "Saved conversations, several running at once",
+      "Continue a session started in the Claude Code or Codex CLI",
+      "No accounts, no telemetry, uses your existing CLI logins"
+    ]
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question", "name": "What do I need to use Turnhuddle?",
+        "acceptedAnswer": { "@type": "Answer", "text": "VS Code 1.95 or later, and the Claude Code and Codex command-line tools installed and signed in. Turnhuddle runs those tools for you; it has no account of its own." } },
+      { "@type": "Question", "name": "Does Turnhuddle change my files?",
+        "acceptedAnswer": { "@type": "Answer", "text": "It asks both agents to discuss only. Claude runs in plan mode and Codex in a read-only sandbox, so neither should edit your workspace. These are the CLIs' own permission modes, not a security boundary for hooks, plugins or MCP servers you have installed." } },
+      { "@type": "Question", "name": "What does it cost?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Turnhuddle is free and open source under the MIT licence. Each turn uses your Claude and Codex accounts, so their normal usage and charges apply." } },
+      { "@type": "Question", "name": "When does a round stop?",
+        "acceptedAnswer": { "@type": "Answer", "text": "When Claude and Codex both say the recommendation is final, in consecutive turns. A turn limit, 10 by default, ends a round that never converges, and the chat says so. You can also press Stop at any time." } },
+      { "@type": "Question", "name": "Where are my conversations stored?",
+        "acceptedAnswer": { "@type": "Answer", "text": "As plain JSON files in VS Code's storage for the extension, on your machine. Nothing is sent to a Turnhuddle server; there isn't one." } }
+    ]
+  }
+  </script>
+  <link rel="stylesheet" href="site.css" />
+</head>
+<body>
+  <nav>
+    <div class="wrap">
+      <a class="brand" href="#top"><img src="icon.png" alt="" width="30" height="30" />Turnhuddle</a>
+      <div class="navlinks">
+        <a href="#how">How it works</a>
+        <a href="#agreement">Agreement</a>
+        <a href="#features">Features</a>
+        <a href="#faq">FAQ</a>
+        <a href="whats-new/">What's new</a>
+        <a class="btn primary small" href="https://marketplace.visualstudio.com/items?itemName=Turnhuddle.turnhuddle">Install</a>
+      </div>
+    </div>
+  </nav>
+
+  <main id="top">
+    <header class="hero">
+      <div class="wrap">
+        <!-- whats-new:pill --><a class="pill" href="whats-new/#v0.2.0"><b>New in 0.2.0</b> · a chat panel where Claude and Codex talk until both agree →</a><!-- /whats-new:pill -->
+        <h1>Two coding agents. <span class="grad">One answer they both stand behind.</span></h1>
+        <p class="lead">Turnhuddle puts Claude Code and Codex in one VS Code chat. Claude proposes, Codex reviews, and they keep going until both agree, so you get a second opinion without copying text between two tools.</p>
+        <div class="ctas">
+          <a class="btn primary" href="https://marketplace.visualstudio.com/items?itemName=Turnhuddle.turnhuddle">Install for VS Code</a>
+          <a class="btn ghost" href="#how">See how it works</a>
+        </div>
+        <p class="fine">Free and open source · Uses the Claude Code and Codex CLIs you already have · No account, no telemetry</p>
+
+        <div class="shot">
+          <div class="chrome"><i></i><i></i><i></i><span>Turnhuddle · VS Code</span></div>
+          <picture>
+            <source srcset="screenshots/chat-dark.png" media="(prefers-color-scheme: dark)" />
+            <img src="screenshots/chat-light.png" width="1800" height="1200" alt="VS Code with the Turnhuddle chat open beside the code: Claude and Codex review a rate-limiting plan and both agree after four turns" fetchpriority="high" />
+          </picture>
+        </div>
+
+        <div class="logos" aria-label="Works with">
+          <span><i class="mk c">C</i>Claude Code CLI</span>
+          <span><i class="mk x">Cx</i>Codex CLI</span>
+          <span><i class="mk v">VS</i>Visual Studio Code</span>
+        </div>
+      </div>
+    </header>
+
+    <section id="how">
+      <div class="wrap">
+        <div class="center">
+          <div class="kicker">How it works</div>
+          <h2>Type a task. Watch them work it out.</h2>
+          <p class="sub">Turnhuddle runs the official command-line tools for you, turn by turn, and shows the exchange as a chat.</p>
+        </div>
+        <div class="steps">
+          <div class="step"><div class="num">1</div><h3>Install and check</h3><p>Install the extension, then run <b>Turnhuddle: Check CLI Installations</b>. It finds the Claude Code and Codex CLIs you've already signed in to.</p></div>
+          <div class="step"><div class="num">2</div><h3>Describe the task</h3><p>Open the Turnhuddle panel in the Activity Bar and type what you need: a design question, a review, a tricky bug. Press Enter.</p></div>
+          <div class="step"><div class="num">3</div><h3>Read the conversation</h3><p>Claude's answer streams in, Codex reviews it, and they go back and forth until both agree. Reply to start another round.</p></div>
+        </div>
+        <div class="shot" style="margin-top:40px">
+          <div class="chrome"><i></i><i></i><i></i><span>Turnhuddle · VS Code</span></div>
+          <picture>
+            <source srcset="screenshots/streaming-dark.png" media="(prefers-color-scheme: dark)" />
+            <img src="screenshots/streaming-light.png" width="1800" height="1200" loading="lazy" alt="Claude's revised plan appearing word by word in the Turnhuddle chat, with the composer showing round 1 and turn 3" />
+          </picture>
+        </div>
+      </div>
+    </section>
+
+    <section id="agreement" class="alt">
+      <div class="wrap split">
+        <div>
+          <div class="kicker">Agreement rounds</div>
+          <h2>Done when both say it's done.</h2>
+          <p class="sub" style="margin-bottom:0">A fixed number of turns ends conversations too early or too late. Turnhuddle lets the agents decide.</p>
+          <ul class="ticks">
+            <li><span><b>Every turn ends with a verdict.</b> Each agent says whether the current recommendation is final, shown as <b>agrees</b> or <b>continues</b>.</span></li>
+            <li><span><b>Two agreements in a row finish it.</b> One agent can't sign off on its own work.</span></li>
+            <li><span><b>A limit you set.</b> After 10 turns by default the round stops and says there was no agreement, rather than going in circles.</span></li>
+            <li><span><b>Prefer a fixed round?</b> Switch to Claude, Codex, Claude in settings.</span></li>
+          </ul>
+        </div>
+        <div class="relay" aria-label="An example round">
+          <div class="turn"><span class="who you">You</span><p><b>Add rate limiting to POST /login.</b></p><span></span></div>
+          <div class="turn"><span class="who c">C</span><p><b>Claude</b> proposes express-rate-limit with a Redis store, keyed on IP and email.</p><span class="verdict go">continues</span></div>
+          <div class="turn"><span class="who x">Cx</span><p><b>Codex</b> spots email spraying from one IP and case-sensitive emails.</p><span class="verdict go">continues</span></div>
+          <div class="turn"><span class="who c">C</span><p><b>Claude</b> adds a per-IP limit, lower-cases emails, resets on success.</p><span class="verdict ok">agrees</span></div>
+          <div class="turn"><span class="who x">Cx</span><p><b>Codex</b> confirms the plan and the proxy setting.</p><span class="verdict ok">agrees</span></div>
+          <div class="turn done"><span class="who" style="background:var(--ok)">✓</span><p>Both agreed after 4 turns</p><span></span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="features">
+      <div class="wrap">
+        <div class="center">
+          <div class="kicker">Features</div>
+          <h2>A second opinion, built into your editor.</h2>
+          <p class="sub">Everything you'd do by pasting answers between two terminals, in one panel.</p>
+        </div>
+        <div class="features">
+          <div class="feat"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></div>
+            <h3>One chat, two agents</h3><p>Your task, Claude's proposals and Codex's reviews in a single thread, with code blocks, lists and tables rendered properly.</p></div>
+          <div class="feat"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h12"/><path d="M4 18h7"/></svg></div>
+            <h3>Answers stream in</h3><p>Claude's reply appears as it's written. Codex shows what it's doing, then its review. A live status tells you who's thinking and for how long.</p></div>
+          <div class="feat"><div class="ico green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+            <h3>Rounds that converge</h3><p>The agents alternate until both agree, within a turn limit you choose. Reply to a finished round to dig further on the same conversation.</p></div>
+          <div class="feat"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18"/><path d="M3 12h18"/><path d="M3 19h12"/></svg></div>
+            <h3>Saved conversations</h3><p>Every conversation is kept on your machine and listed with its state. Reopen any of them, run several at once, archive instead of delete.</p></div>
+          <div class="feat"><div class="ico green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5v14l11-7z"/></svg></div>
+            <h3>Continue a CLI session</h3><p>Started something in Claude Code or Codex? Pick that session and continue it in Turnhuddle, with everything the agent already knows.</p></div>
+          <div class="feat"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+            <h3>Speed you control</h3><p>Set how hard Codex and Claude think, for Turnhuddle only, without touching your CLI configuration.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="history" class="alt">
+      <div class="wrap split flip">
+        <div>
+          <div class="kicker">Conversations</div>
+          <h2>Pick up exactly where you left off.</h2>
+          <p class="sub" style="margin-bottom:0">Your conversations, and the ones you started in the CLIs, are one click away.</p>
+          <ul class="ticks">
+            <li><span><b>A list of everything.</b> Running, completed and failed conversations, newest first, with their round count.</span></li>
+            <li><span><b>Continue from Claude Code or Codex.</b> Choose a saved CLI session for this folder. Claude's is forked, so your original session stays untouched.</span></li>
+            <li><span><b>Several at once.</b> Start a new conversation while another is still running and switch between them.</span></li>
+            <li><span><b>Nothing is deleted.</b> Archive moves a conversation aside; the file stays until you remove it yourself.</span></li>
+          </ul>
+        </div>
+        <div class="shot small">
+          <picture>
+            <source srcset="screenshots/continue-dark.png" media="(prefers-color-scheme: dark)" />
+            <img src="screenshots/continue-light.png" width="1800" height="1200" loading="lazy" alt="A picker listing recent Claude Code and Codex sessions, over VS Code with the Turnhuddle conversations list" />
+          </picture>
+        </div>
+      </div>
+    </section>
+
+    <section id="speed">
+      <div class="wrap">
+        <div class="center">
+          <div class="kicker">Fast</div>
+          <h2>No staring at a blank panel.</h2>
+          <p class="sub">Most of a round is the models thinking. Turnhuddle shows progress the whole time and lets you trade depth for speed.</p>
+        </div>
+        <div class="stats">
+          <div class="stat"><b>~5 s</b><span>until Claude's first words appear, in our tests</span></div>
+          <div class="stat"><b>~50 s</b><span>for a typical round with Codex at medium effort, down from about 90 s at its highest</span></div>
+          <div class="stat"><b>0</b><span>keys or passwords stored by Turnhuddle: it uses your existing CLI logins</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="requirements" class="alt">
+      <div class="wrap">
+        <div class="center">
+          <div class="kicker">Requirements</div>
+          <h2>Bring your own agents.</h2>
+          <p class="sub">Turnhuddle drives the official command-line tools. Install them and sign in once in a terminal; Turnhuddle does the rest.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Needs</th><th>Version</th><th>How Turnhuddle uses it</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td><i class="mk c">C</i>Claude Code CLI</td><td data-l="Version">Recent release, signed in</td><td data-l="How Turnhuddle uses it">Plan mode, streaming output, <code>--resume</code> for continued sessions</td><td data-l="Status"><span class="tag ok">Required</span></td></tr>
+              <tr><td><i class="mk x">Cx</i>Codex CLI</td><td data-l="Version">Recent release, signed in</td><td data-l="How Turnhuddle uses it">Read-only sandbox, JSON output, <code>exec resume</code> for continued sessions</td><td data-l="Status"><span class="tag ok">Required</span></td></tr>
+              <tr><td><i class="mk v">VS</i>Visual Studio Code</td><td data-l="Version">1.95 or later</td><td data-l="How Turnhuddle uses it">Chat panel, Conversations view, Output channel</td><td data-l="Status"><span class="tag ok">Required</span></td></tr>
+              <tr><td>Operating system</td><td data-l="Version">macOS</td><td data-l="How Turnhuddle uses it">Tested on macOS. Windows and Linux should work but aren't verified yet.</td><td data-l="Status"><span class="tag beta">macOS tested</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="privacy">
+      <div class="wrap">
+        <div class="center">
+          <div class="kicker">Privacy</div>
+          <h2>Your code talks only to your agents.</h2>
+          <p class="sub">There's no Turnhuddle account and no Turnhuddle server. Your task and the replies go to Claude and Codex through their own CLIs, under your own accounts.</p>
+        </div>
+        <div class="three">
+          <div class="feat"><h3>No new logins</h3><p>Turnhuddle uses the Claude Code and Codex CLIs you've already signed in to. It never asks for or stores a key or password.</p></div>
+          <div class="feat"><h3>No tracking</h3><p>No analytics and no telemetry. Conversations are plain files on your machine. The only request Turnhuddle makes itself is a daily check for a new version on GitHub, which you can turn off.</p></div>
+          <div class="feat"><h3>Discussion, not edits</h3><p>Claude runs in plan mode and Codex in a read-only sandbox, and both are told to discuss only. These are the CLIs' own modes, not a sandbox for hooks or MCP servers you've installed.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="faq" class="alt">
+      <div class="wrap">
+        <div class="center">
+          <div class="kicker">FAQ</div>
+          <h2>Questions, answered.</h2>
+        </div>
+        <div class="faq">
+          <details open><summary>What do I need to use Turnhuddle?</summary><p>VS Code 1.95 or later, and the Claude Code and Codex command-line tools installed and signed in. Turnhuddle runs those tools for you; it has no account of its own. If the tools aren't on VS Code's path, set <code>turnhuddle.claudePath</code> and <code>turnhuddle.codexPath</code>.</p></details>
+          <details><summary>Does it change my files?</summary><p>It asks both agents to discuss only. Claude runs in plan mode and Codex in a read-only sandbox, so neither should edit your workspace. These are the CLIs' own permission modes, not a security boundary for hooks, plugins or MCP servers you've installed.</p></details>
+          <details><summary>What does it cost?</summary><p>Turnhuddle is free and open source under the MIT licence. Each turn uses your Claude and Codex accounts, so their normal usage and charges apply. Longer rounds use more, because every turn sees the whole conversation.</p></details>
+          <details><summary>When does a round stop?</summary><p>When Claude and Codex both say the recommendation is final, in consecutive turns. A turn limit, 10 by default, ends a round that never converges, and the chat says so. You can press Stop at any time.</p></details>
+          <details><summary>Can I continue a conversation I started in the terminal?</summary><p>Yes. Run <b>Turnhuddle: Continue from a Claude Code or Codex Session</b> and pick it. Claude continues in a fork of that session, so the original is left as it was; a Codex thread continues in place.</p></details>
+          <details><summary>Where are my conversations stored?</summary><p>As plain JSON files in VS Code's storage for the extension, on your machine. <b>Turnhuddle: Reveal History Folder</b> opens it. Archived conversations stay there until you delete them yourself.</p></details>
+          <details><summary>How do updates work?</summary><p>If you installed from the Marketplace, VS Code updates Turnhuddle for you. Either way, Turnhuddle checks GitHub once a day and offers to install a newer version, verifying the download's checksum first. Run <b>Turnhuddle: Check for Updates</b> any time, or turn the daily check off in settings.</p></details>
+          <details><summary>How do I install it?</summary><p>From the <a href="https://marketplace.visualstudio.com/items?itemName=Turnhuddle.turnhuddle">Visual Studio Marketplace</a>, or search for Turnhuddle in VS Code's Extensions view. Each <a href="https://github.com/sibinms/turnhuddle/releases">GitHub release</a> also has the VSIX, for <b>Extensions: Install from VSIX…</b>.</p></details>
+        </div>
+      </div>
+    </section>
+
+    <section class="final">
+      <div class="wrap">
+        <h2>Stop pasting between two agents.</h2>
+        <p class="sub" style="margin:0 auto 30px">Let Claude and Codex review each other, right where you write the code.</p>
+        <div class="ctas">
+          <a class="btn primary" href="https://marketplace.visualstudio.com/items?itemName=Turnhuddle.turnhuddle">Install for VS Code</a>
+          <a class="btn ghost" href="https://github.com/sibinms/turnhuddle">View on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© 2026 Turnhuddle · MIT licence</span>
+      <span class="sp"></span>
+      <a href="whats-new/">What's new</a>
+      <a href="privacy.html">Privacy</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://github.com/sibinms/turnhuddle">GitHub</a>
+    </div>
+  </footer>
+</body>
+</html>

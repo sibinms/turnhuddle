@@ -1,0 +1,46 @@
+{
+  "version": "0.2.0",
+  "date": "2026-11-25",
+  "headline": "A real chat, and the agents keep going until they agree",
+  "pill": "a chat panel where Claude and Codex talk until both agree",
+  "summary": "Turnhuddle now has its own chat panel in the Activity Bar. Type a task, watch Claude's reply stream in, and let Claude and Codex review each other until both say the answer is final. Every conversation is saved, several can run at once, and you can pick up a session you started in Claude Code or Codex.",
+  "highlights": [
+    {
+      "tag": "New",
+      "title": "Rounds end when both agents agree",
+      "text": "Claude proposes, then Claude and Codex take turns reviewing each other. Each ends its turn with a verdict, shown as **agrees** or **continues** next to its name, and the round finishes when both agree back to back. A turn limit (10 by default) stops a round that never converges, and says so.",
+      "image": "chat",
+      "alt": "The Turnhuddle chat panel in VS Code showing Claude and Codex agreeing on a rate-limiting plan after four turns"
+    },
+    {
+      "tag": "New",
+      "title": "Watch Claude write",
+      "text": "Claude's reply streams into the chat as it's written, with a live status like **Noodling… 18s** while each agent works. Codex shows what it's doing, such as reasoning or running a command, then its whole reply. A Turnhuddle-only reasoning setting for Codex cut a typical round from about 90 to about 50 seconds in our tests.",
+      "image": "streaming",
+      "alt": "Claude's reply appearing word by word in the chat panel while the composer shows the round timer and the current turn"
+    },
+    {
+      "tag": "New",
+      "title": "Every conversation, saved",
+      "text": "Conversations are saved on your machine and listed above the chat with their state, round count and age. Click one to reopen it and reply; start another while one is running. **Archive** moves a conversation aside instead of deleting it.",
+      "image": "history",
+      "alt": "The Conversations list above the chat, with one conversation running, two completed and one failed",
+      "size": "compact"
+    },
+    {
+      "tag": "New",
+      "title": "Continue from Claude Code or Codex",
+      "text": "Pick a session you started in the Claude Code or Codex CLI and continue it in Turnhuddle. The agent keeps everything from that session; the other joins as reviewer. Claude's session is forked, so the original stays untouched.",
+      "image": "continue",
+      "alt": "A picker listing recent Claude Code and Codex sessions for the current folder",
+      "size": "compact"
+    }
+  ],
+  "improvements": [
+    "Replies render as Markdown: headings, lists, code blocks with a language label, tables and links.",
+    "Reply to a finished round to run another one on the same conversation, with the full history.",
+    "The composer shows the round timer, whose turn it is and the effort setting; Send becomes Stop while a round runs.",
+    "Copy any reply with one click.",
+    "`turnhuddle.roundMode: fixed` keeps the original three-turn round."
+  ]
+}

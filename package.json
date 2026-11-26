@@ -50,7 +50,7 @@
       },
       {
         "command": "turnhuddle.start",
-        "title": "Start Claude ↔ Codex Conversation",
+        "title": "Start Claude \u2194 Codex Conversation",
         "category": "Turnhuddle"
       },
       {
@@ -118,6 +118,11 @@
       {
         "command": "turnhuddle.listVendorSessions",
         "title": "List CLI Sessions",
+        "category": "Turnhuddle"
+      },
+      {
+        "command": "turnhuddle.checkForUpdates",
+        "title": "Check for Updates",
         "category": "Turnhuddle"
       }
     ],
@@ -194,6 +199,11 @@
           "minimum": 2,
           "maximum": 30,
           "description": "Agreement mode: the most agent turns in one round before it ends without agreement."
+        },
+        "turnhuddle.checkForUpdates": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check GitHub once a day for a newer Turnhuddle release and offer to install it. Installs from the Marketplace are also updated by VS Code itself."
         }
       }
     },
@@ -321,7 +331,10 @@
     "vscode:prepublish": "npm run compile",
     "package": "vsce package",
     "test:vscode": "node test/vscode/run.cjs",
-    "vsce:ls": "vsce ls"
+    "vsce:ls": "vsce ls",
+    "site": "npm run compile && node scripts/whats-new.cjs site site",
+    "screenshots": "npm run compile && node scripts/screenshots.cjs",
+    "check-notes": "node scripts/whats-new.cjs check \"$(node -p \\\"require('./package.json').version\\\")\""
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

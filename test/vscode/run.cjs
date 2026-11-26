@@ -35,6 +35,8 @@ fs.writeFileSync(path.join(userDataDir, 'User', 'settings.json'), JSON.stringify
   'turnhuddle.timeoutSeconds': Number(process.env.TURNHUDDLE_TIMEOUT_SECONDS || 600),
   // Most steps assert the exact three-turn relay; the suite switches to agreement mode for its own step.
   'turnhuddle.roundMode': 'fixed',
+  // The suite runs the update check itself; the automatic one would only add a notification.
+  'turnhuddle.checkForUpdates': false,
   'update.mode': 'none',
   'telemetry.telemetryLevel': 'off',
   'workbench.startupEditor': 'none'

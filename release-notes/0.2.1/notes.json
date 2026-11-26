@@ -1,0 +1,22 @@
+{
+  "version": "0.2.1",
+  "date": "2026-11-26",
+  "headline": "Updates for everyone, and releases that publish themselves",
+  "pill": "check for updates, even when installed from GitHub",
+  "summary": "Turnhuddle now checks for new versions itself, so installs from GitHub stay current too. Plus a clearer Activity Bar icon, a fix for the streaming cursor, and every release now published automatically with notes and a downloadable VSIX.",
+  "improvements": [
+    "A new Activity Bar icon, two arrows taking turns, that stays legible at small sizes.",
+    "Each release now comes with a GitHub Release that includes the VSIX, for installing without the Marketplace.",
+    "This website, with every release explained."
+  ],
+  "fixes": [
+    "While Claude streams a list, the typing cursor now sits at the end of the text instead of on a line of its own."
+  ],
+  "highlights": [
+    {
+      "tag": "New",
+      "title": "Check for updates",
+      "text": "Once a day Turnhuddle asks GitHub for the latest release. If there's a newer one, a notification offers to install it: the VSIX is downloaded, its checksum verified against GitHub's, and installed for you. Run **Turnhuddle: Check for Updates** any time, or turn the daily check off with `turnhuddle.checkForUpdates`."
+    }
+  ]
+}

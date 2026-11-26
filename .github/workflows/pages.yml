@@ -1,0 +1,49 @@
+# Builds the website from site/ and release-notes/ and publishes it to GitHub Pages:
+# https://sibinms.github.io/turnhuddle/
+# Runs when the site or the notes change on main, after each Release, or by hand.
+# Only released versions (those with a v* tag) appear on the What's new page.
+name: Website
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "release-notes/**"
+      - "scripts/whats-new.cjs"
+      - ".github/workflows/pages.yml"
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+concurrency:
+  group: pages
+  cancel-in-progress: false
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags decide which versions are released
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the What's new page
+        run: |
+          latest="$(git tag --list 'v*' --sort=-v:refname | head -n 1)"
+          echo "Latest released version: ${latest:-none}"
+          node scripts/whats-new.cjs site site ${latest:+--upto "$latest"}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

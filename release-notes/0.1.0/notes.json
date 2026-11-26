@@ -1,0 +1,13 @@
+{
+  "version": "0.1.0",
+  "date": "2026-11-25",
+  "headline": "Claude and Codex, in one relay",
+  "pill": "Claude proposes, Codex reviews, Claude replies",
+  "summary": "The first version: give Turnhuddle a task and it runs Claude Code, then Codex, then Claude again through their command-line tools, sharing one conversation ID and the full history. The exchange appears in the Turnhuddle Output channel.",
+  "improvements": [
+    "**Turnhuddle: Check CLI Installations** confirms both CLIs are found before you start.",
+    "Cancel a conversation from the progress notification; the running CLI is stopped and later turns don't start.",
+    "Per-turn timeouts and an output limit keep a stuck CLI from hanging VS Code.",
+    "Errors include the last lines the CLI printed, so a sign-in problem is obvious."
+  ]
+}

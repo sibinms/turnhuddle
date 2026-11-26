@@ -58,6 +58,13 @@ const steps = async (report, save) => {
   const folder = vscode.workspace.workspaceFolders[0].uri.fsPath;
   assert.ok(vscode.workspace.isTrusted, 'workspace must be trusted');
   const before = snapshot(folder);
+  // 0b. Update check against the real GitHub API (the command's silent form returns the result without notifications)
+  log('step 0b: update check');
+  const update = await vscode.commands.executeCommand('turnhuddle.checkForUpdates', { silent: true });
+  report.steps.updates = update;
+  log('update check:', JSON.stringify(update));
+  assert.equal(update.current, report.version);
+  assert.ok(['available', 'current', 'none'].includes(update.status), `update check failed: ${JSON.stringify(update)}`);
   // 1. CLI check
   log('step 1: check');
   const check = await vscode.commands.executeCommand('turnhuddle.check');

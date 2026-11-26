@@ -73,25 +73,38 @@ Next milestones: persistent CLI sessions for every conversation (no history repl
 - [Claude CLI reference](https://code.claude.com/docs/en/cli-reference)
 - Codex: `codex exec --help` for the installed version.
 
+## Updates
+
+Installs from the Marketplace are updated by VS Code itself. For everyone, including VSIX installs from GitHub, Turnhuddle checks GitHub once a day, 15 seconds after VS Code starts, for a newer release. If there is one, a notification offers **Install Update**, **What's New** and **Skip This Version**. Install downloads that release's VSIX from GitHub, checks its size, format and the SHA-256 digest GitHub publishes for it, installs it and offers to reload the window. **Turnhuddle: Check for Updates** runs the check on demand. Set `turnhuddle.checkForUpdates` to `false` to turn the daily check off; the request to GitHub carries nothing about you or your work.
+
+## Website and release notes
+
+The website at <https://sibinms.github.io/turnhuddle/> lives in `site/` and is published by the **Website** workflow (`.github/workflows/pages.yml`) to GitHub Pages whenever `site/` or `release-notes/` change on `main`, after every Release, or on demand. It follows the same design and release-notes system as the Kube Console site.
+
+- **Release notes** live in `release-notes/<version>/notes.json` with optional screenshots beside them as `<name>-light.png` and `<name>-dark.png`. `scripts/whats-new.cjs` turns them into the site's *What's new* page, the "New in …" pill on the home page, the sitemap entry and the GitHub Release text. Only versions with a `v*` tag appear on the site, so notes can be written before a release.
+- **Screenshots** come from `npm run screenshots`: it renders the extension's real chat panel HTML inside a VS Code-style window with sample conversations, in light and dark, using headless Chrome. Copy the ones a release needs into its notes folder.
+- **Preview locally** with `npm run site` and any static server on `site/` (for example `python3 -m http.server -d site`).
+
 ## Publication
 
 Releases are published by GitHub Actions through the Marketplace's **trusted publishing**: no token is stored anywhere.
 
-- **CI** (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request: install, compile, the Node unit tests, and a VSIX build that is kept as a downloadable artifact for 14 days.
-- **Release** (`.github/workflows/release.yml`) runs when a tag like `v0.2.1` is pushed. It checks that the tag equals `v` + the `version` in `package.json`, runs the tests, builds the VSIX, publishes it with `vsce publish --oidc`, and creates a GitHub Release with the VSIX attached and the matching `CHANGELOG.md` section as notes.
+- **CI** (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request: release notes exist for the version in `package.json`, install, compile, the Node unit tests, and a VSIX build kept as a downloadable artifact for 14 days.
+- **Release** (`.github/workflows/release.yml`) runs when a tag like `v0.2.1` is pushed. It checks that the tag equals `v` + the `version` in `package.json` and that its release notes are valid, runs the tests, builds the VSIX, publishes it with `vsce publish --oidc`, and creates a GitHub Release with the VSIX attached and the release notes as text. The Website workflow then republishes the site.
 
 The publisher `Turnhuddle` has a trusted-publishing policy for repository `sibinms/turnhuddle`, workflow `release.yml` and environment `marketplace`. Renaming the workflow file or the environment breaks publishing until the policy is updated to match. To require your approval before each publish, add yourself as a required reviewer on the `marketplace` environment (repository Settings → Environments).
 
 ### To release a version
 
 1. Run `npm run test:vscode` locally (it needs the signed-in CLIs, so CI cannot run it).
-2. Bump `version` in `package.json` and add a `## <version> — <date>` section to `CHANGELOG.md`; commit.
-3. Tag and push:
+2. Write `release-notes/<version>/notes.json` (and screenshots, if any); `npm run check-notes` validates the notes for the version in `package.json`.
+3. Bump `version` in `package.json`, add a `## <version> — <date>` section to `CHANGELOG.md`, and commit.
+4. Tag and push:
 
    ```bash
    git tag -a v0.2.1 -m "Turnhuddle 0.2.1" && git push origin main --tags
    ```
 
-4. Watch the Release workflow in the repository's Actions tab. The Marketplace usually shows the new version a few minutes after it finishes.
+5. Watch the Release and Website workflows in the repository's Actions tab. The Marketplace usually shows the new version a few minutes after Release finishes.
 
 The Marketplace does not accept pre-release suffixes such as `-beta.1` in the version; publish a pre-release with an odd minor version and `vsce publish --pre-release` if that is ever needed. The official Claude and Codex logos are deliberately not bundled; see *Chat panel*.

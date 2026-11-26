@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy · Turnhuddle</title>
+  <meta name="description" content="Turnhuddle has no account, no server and no telemetry. Your tasks go to Claude and Codex through their own command-line tools." />
+  <link rel="canonical" href="https://sibinms.github.io/turnhuddle/privacy.html" />
+  <link rel="icon" type="image/png" href="icon.png" />
+  <link rel="stylesheet" href="site.css" />
+  <style> .doc { max-width: 760px; padding: 64px 24px 96px; } .doc h1 { font-size: clamp(36px, 5vw, 52px); text-align: left; margin: 0 0 12px; } .doc h2 { font-size: 24px; margin: 36px 0 8px; } .doc p, .doc li { color: var(--muted); } .doc .updated { color: var(--faint); font-size: 15px; } </style>
+</head>
+<body>
+  <nav><div class="wrap"><a class="brand" href="./"><img src="icon.png" alt="" width="30" height="30" />Turnhuddle</a><div class="navlinks"><a href="./#features">Features</a><a href="whats-new/">What's new</a><a class="btn primary small" href="https://marketplace.visualstudio.com/items?itemName=Turnhuddle.turnhuddle">Install</a></div></div></nav>
+  <main class="wrap doc">
+    <h1>Privacy</h1>
+    <p class="updated">Last updated 26 November 2026</p>
+    <p>Turnhuddle is a VS Code extension with no account, no server and no analytics. This page explains where your data goes when you use it.</p>
+    <h2>What you type and what the agents reply</h2>
+    <p>Your task and the conversation so far are sent to Claude and Codex through their official command-line tools, the Claude Code CLI and the Codex CLI, under the accounts you signed in to with those tools. Anthropic's and OpenAI's terms and data policies apply to that traffic. The CLIs may also keep their own session history on your machine.</p>
+    <h2>What Turnhuddle stores</h2>
+    <ul>
+      <li>Each conversation is a JSON file in VS Code's storage folder for the extension, on your machine. Archiving marks a file; it never deletes one. <b>Turnhuddle: Reveal History Folder</b> shows where they are.</li>
+      <li>The text of each conversation is also written to the Turnhuddle Output channel for the current VS Code session.</li>
+      <li>To continue a CLI session, Turnhuddle reads the CLIs' own transcript files on your machine, only to list them.</li>
+    </ul>
+    <h2>Network requests Turnhuddle makes itself</h2>
+    <p>Only one: when update checks are on, it asks GitHub for the latest release of Turnhuddle, at most once a day and when you run <b>Turnhuddle: Check for Updates</b>. The request carries no information about you or your work. Turn it off with the <code>turnhuddle.checkForUpdates</code> setting.</p>
+    <h2>Telemetry</h2>
+    <p>None. Turnhuddle sends no usage data, crash reports or analytics.</p>
+    <h2>Contact</h2>
+    <p>Questions or concerns: <a href="https://github.com/sibinms/turnhuddle/issues">open an issue on GitHub</a>.</p>
+  </main>
+  <footer><div class="wrap"><span>© 2026 Turnhuddle · MIT licence</span><span class="sp"></span><a href="./">Home</a><a href="whats-new/">What's new</a><a href="https://github.com/sibinms/turnhuddle">GitHub</a></div></footer>
+</body>
+</html>

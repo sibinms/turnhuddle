@@ -1,4 +1,5 @@
-# Publishes to the Visual Studio Marketplace when a version tag (v1.2.3) is pushed.
+# Publishes to the Visual Studio Marketplace when a version tag (v1.2.3) is pushed, after checking that
+# release-notes/<version>/notes.json exists. The Website workflow then republishes the site with the new notes.
 # Authentication is Marketplace trusted publishing: no token is stored. The publisher's policy names this
 # repository, this file (release.yml) and the "marketplace" environment, so all three must stay as they are.
 name: Release
@@ -29,6 +30,8 @@ jobs:
             exit 1
           fi
           echo "VERSION=${version}" >> "$GITHUB_ENV"
+      - name: Check the release notes
+        run: node scripts/whats-new.cjs check "${VERSION}"
       - run: npm ci
       - run: npm test
       - run: npx vsce package --out "turnhuddle-${VERSION}.vsix"
@@ -38,5 +41,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes="$(awk -v v="## ${VERSION}" 'index($0, v) == 1 { on = 1; next } /^## / { on = 0 } on' CHANGELOG.md)"
-          gh release create "${GITHUB_REF_NAME}" "turnhuddle-${VERSION}.vsix" --title "Turnhuddle ${VERSION}" --notes "${notes:-See CHANGELOG.md}"
+          node scripts/whats-new.cjs markdown "${VERSION}" > release-notes.md
+          gh release create "${GITHUB_REF_NAME}" "turnhuddle-${VERSION}.vsix" --title "Turnhuddle ${VERSION}" --notes-file release-notes.md

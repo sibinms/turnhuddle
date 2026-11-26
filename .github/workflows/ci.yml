@@ -16,6 +16,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Check the release notes for the version in package.json
+        run: node scripts/whats-new.cjs check "$(node -p 'require("./package.json").version')"
       - run: npm ci
       - run: npm test
       - run: npx vsce package --out turnhuddle.vsix

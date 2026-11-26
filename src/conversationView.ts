@@ -242,7 +242,8 @@ img.avatar { background: transparent; padding: 1px; }
 .thinking-label { display: inline-flex; align-items: center; gap: 5px; margin-left: 2px; font-style: italic; color: var(--th-muted); font-size: 0.92em; }
 .spark { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pulse-dot 1s ease-in-out infinite; }
 .activity { margin: 0; padding-left: 27px; font-style: italic; color: var(--th-muted); font-size: 0.92em; }
-.content.streaming > :last-child::after { content: '▍'; opacity: 0.6; animation: blink 1s steps(2) infinite; }
+/* The typing cursor sits at the end of the streamed text: after the last paragraph, or inside the last list item, never on a line of its own. */
+.content.streaming > :last-child:not(ul):not(ol):not(pre)::after, .content.streaming > :is(ul, ol):last-child > li:last-child::after, .content.streaming > pre:last-child code::after { content: '▍'; opacity: 0.6; animation: blink 1s steps(2) infinite; }
 @keyframes blink { to { opacity: 0; } }
 .round-divider { display: flex; align-items: center; gap: 10px; margin: 2px 0; font-size: 0.78em; color: var(--th-muted); text-transform: uppercase; letter-spacing: 0.05em; }
 .round-divider::before, .round-divider::after { content: ''; flex: 1; border-top: 1px solid var(--th-border); }

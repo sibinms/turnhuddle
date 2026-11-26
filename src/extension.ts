@@ -8,6 +8,7 @@ import { HistoryStore, SessionManager, SessionSummary, withAgentSession } from '
 import { listVendorSessions, VendorSession } from './vendorSessions';
 import { conversationIdFrom, SessionsTreeProvider } from './sessionsTree';
 import { ConversationViewProvider } from './sidebar';
+import { checkDue, checkForUpdate, downloadVsix, Fetcher, UpdateCheck } from './updates';
 /** Returned by `turnhuddle.start` and `turnhuddle.reply` so callers (keybindings, automation, tests) can inspect the outcome of the round they ran. */
 export type StartResult = { status: 'completed' | 'cancelled' | 'failed' | 'skipped'; id?: string; messages: Message[]; error?: string };
 /** `task`/`message` skip the input box; `source: 'sidebar'` means the chat panel sent it, so the Output channel is written to but not raised. */
@@ -21,6 +22,7 @@ export interface TurnhuddleApi {
   isViewResolved(): boolean; isViewVisible(): boolean;
   listSessions(): SessionSummary[]; runningIds(): string[]; historyDir(): string;
   listVendorSessions(all?: boolean): Promise<VendorSession[]>;
+  checkForUpdates(): Promise<UpdateCheck>;
 }
 const running = new Map<string, AbortController>();
 let sessionsRef: SessionManager | undefined;
@@ -207,6 +209,53 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
     if (!id) return round(undefined, preset, o.source, 'Claude ↔ Codex', 'Task to share with both providers. CLI usage may incur charges.');
     return round(id, preset, o.source, 'Claude ↔ Codex: reply', 'Follow-up for the current conversation. Both providers see the full history.');
   });
+  // ---------- updates ----------
+  // Marketplace installs are also updated by VS Code itself; this covers VSIX installs from GitHub Releases.
+  const fetcher = fetch as unknown as Fetcher;
+  const current = String(context.extension.packageJSON.version ?? '0.0.0');
+  const LAST_CHECK = 'turnhuddle.updates.lastCheck', SKIPPED = 'turnhuddle.updates.skipped';
+  const installUpdate = async (check: Extract<UpdateCheck, { status: 'available' }>) => {
+    try {
+      const file = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Downloading Turnhuddle ${check.release.version}…` }, async () => {
+        const data = await downloadVsix(check.release, fetcher);
+        const dir = vscode.Uri.joinPath(context.globalStorageUri, 'updates');
+        await vscode.workspace.fs.createDirectory(dir);
+        const target = vscode.Uri.joinPath(dir, check.release.vsixName);
+        await vscode.workspace.fs.writeFile(target, data);
+        return target;
+      });
+      await vscode.commands.executeCommand('workbench.extensions.installExtension', file);
+      output.appendLine(`Installed Turnhuddle ${check.release.version} from ${check.release.url}`);
+      const choice = await vscode.window.showInformationMessage(`Turnhuddle ${check.release.version} is installed. Reload the window to start using it.`, 'Reload Window');
+      if (choice === 'Reload Window') await vscode.commands.executeCommand('workbench.action.reloadWindow');
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      output.appendLine(`Update failed: ${text}`);
+      const choice = await vscode.window.showErrorMessage(`Couldn't install the Turnhuddle update. ${text}`, 'Open Release Page');
+      if (choice) await vscode.env.openExternal(vscode.Uri.parse(check.release.url));
+    }
+  };
+  const offerUpdate = async (check: Extract<UpdateCheck, { status: 'available' }>) => {
+    const choice = await vscode.window.showInformationMessage(`Turnhuddle ${check.release.version} is available. You have ${check.current}.`, 'Install Update', "What's New", 'Skip This Version');
+    if (choice === 'Install Update') await installUpdate(check);
+    else if (choice === "What's New") await vscode.env.openExternal(vscode.Uri.parse(`https://sibinms.github.io/turnhuddle/whats-new/#v${check.release.version}`));
+    else if (choice === 'Skip This Version') await context.globalState.update(SKIPPED, check.release.version);
+  };
+  /** `manual` reports every outcome and ignores a skipped version; automatic checks speak only when there is something to install. */
+  const runUpdateCheck = async (manual: boolean): Promise<UpdateCheck> => {
+    const check = await checkForUpdate(current, fetcher);
+    await context.globalState.update(LAST_CHECK, Date.now());
+    if (check.status === 'available' && (manual || context.globalState.get<string>(SKIPPED) !== check.release.version)) void offerUpdate(check);
+    else if (manual && check.status === 'current') void vscode.window.showInformationMessage(`Turnhuddle is up to date (${check.current}).`);
+    else if (manual && check.status === 'none') void vscode.window.showInformationMessage(`No Turnhuddle releases are published on GitHub yet. You have ${check.current}.`);
+    else if (manual && check.status === 'error') void vscode.window.showWarningMessage(`Couldn't check for Turnhuddle updates: ${check.error}`);
+    return check;
+  };
+  register('turnhuddle.checkForUpdates', (options?: unknown): Promise<UpdateCheck> => runUpdateCheck(!(options as { silent?: boolean } | undefined)?.silent));
+  if (settings().get<boolean>('checkForUpdates', true) && checkDue(context.globalState.get<number>(LAST_CHECK), Date.now())) {
+    const timer = setTimeout(() => { void runUpdateCheck(false); }, 15000);
+    context.subscriptions.push({ dispose: () => clearTimeout(timer) });
+  }
   return {
     getState: () => sessions.get(),
     onDidChangeState: listener => ({ dispose: sessions.subscribe(listener) }),
@@ -215,7 +264,8 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
     listSessions: () => sessions.summaries(),
     runningIds: () => [...running.keys()],
     historyDir: () => historyDir,
-    listVendorSessions: all => vendorSessions(all)
+    listVendorSessions: all => vendorSessions(all),
+    checkForUpdates: () => runUpdateCheck(false)
   };
 }
 export async function deactivate(): Promise<void> {
