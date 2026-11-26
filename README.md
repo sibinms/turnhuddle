@@ -35,9 +35,13 @@ It drives the official command-line tools you already have, under your own accou
 
 ## Features
 
+### Live agents, like T3 Code
+
+Each agent runs as one live session for the whole thread: Codex through `codex app-server`, Claude through the Claude Agent SDK using your own Claude Code CLI, and Gemini through ACP. Replies stream in, later turns send only what's new, and **Stop** halts a turn without losing the session. You can also **keep typing while they work**: Claude and Codex take your message into the turn they're on, and both agents see it from their next turn.
+
 ### Laid out like Claude Code
 
-The chat is one **Turnhuddle** panel in VS Code's right-hand sidebar, next to VS Code's own Chat. **Threads** in the activity bar lists every conversation with its state and age. Each agent keeps its own Claude Code or Codex session for the whole thread, so long threads don't get slower.
+The chat is one **Turnhuddle** panel in VS Code's right-hand sidebar, next to VS Code's own Chat. **Threads** in the activity bar lists every conversation with its state and age.
 
 ### Any agent, any model, in either seat
 
@@ -95,6 +99,7 @@ Turnhuddle finds the CLIs by itself: on your PATH, in common install folders, or
 | `turnhuddle.codexReasoningEffort` | `medium` | Codex's reasoning effort for Turnhuddle turns only. `inherit` uses your Codex config. |
 | `turnhuddle.claudeEffort` | `inherit` | Passes `--effort` to Claude: `low` to `max`. |
 | `turnhuddle.claudePath`, `turnhuddle.codexPath`, `turnhuddle.geminiPath` | `claude`, `codex`, `gemini` | Leave as is to find the CLIs automatically, or set a full path. |
+| `turnhuddle.engine` | `live` | `live`: one long-lived agent per thread and seat (app-server, Agent SDK, ACP). `cli`: a CLI process per turn. |
 | `turnhuddle.keepAgentSessions` | `true` | Each seat keeps its CLI session for the thread and receives only new messages. Off: replay the conversation every turn. |
 | `turnhuddle.timeoutSeconds` | `180` | Per-turn time limit. |
 | `turnhuddle.checkForUpdates` | `true` | Daily check for a newer release on GitHub. |
@@ -118,7 +123,9 @@ Turnhuddle finds the CLIs by itself: on your PATH, in common install folders, or
 - Your task and the replies go to the agents you seat, through their own CLIs, under your accounts; their usage charges and data policies apply.
 - Conversations are plain JSON files in VS Code's storage on your machine. Nothing is deleted for you; archived conversations stay until you remove them.
 - No telemetry. The only request Turnhuddle makes itself is the daily update check to GitHub, which you can turn off.
-- Claude runs in plan mode, Codex in a read-only sandbox and Gemini in its default headless mode (which leaves out tools that need approval), and all are told to discuss only. These are the CLIs' own permission modes, not a security boundary for hooks, plugins or MCP servers you've installed.
+- Claude runs in plan mode (tools that would change something are refused), Codex in a read-only sandbox with no approvals and Gemini in its default headless mode (which leaves out tools that need approval), and all are told to discuss only. These are the CLIs' own permission modes, not a security boundary for hooks, plugins or MCP servers you've installed.
+
+- **Claude Agent SDK.** Turnhuddle bundles Anthropic's Claude Agent SDK, which is © Anthropic and covered by Anthropic's terms, not by Turnhuddle's MIT licence. It runs your own `claude` CLI with whatever sign-in that CLI has; Turnhuddle never reads or stores credentials. Anthropic's [legal page](https://code.claude.com/docs/en/legal-and-compliance) restricts third-party products from routing requests through Claude subscription (Pro, Max) credentials. Signing Claude Code in with an API key avoids that question, and `turnhuddle.engine: "cli"` runs your CLI directly instead of through the SDK.
 
 Details: [privacy](https://sibinms.github.io/turnhuddle/privacy.html).
 

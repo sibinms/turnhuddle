@@ -242,7 +242,9 @@ test('page is a chat shell: toolbar composer with send/stop, relay and effort pi
   assert.ok(html.includes(`const words = ${JSON.stringify(THINKING_WORDS)};`), 'word list comes from THINKING_WORDS');
   assert.ok(html.includes(`const wordSeconds = ${WORD_SECONDS};`));
   assert.ok(html.includes(`const thinkingLabel = ${thinkingLabel.toString()};`)); assert.ok(html.includes(`const formatSeconds = ${formatSeconds.toString()};`));
-  for (const command of ["{ command: 'send', text }", "{ command: 'cancel' }", "{ command: 'new' }", "{ command: 'history' }", "{ command: 'copy', index: Number(button.dataset.index) }", "{ command: 'settings' }", "{ command: 'ready' }"]) assert.ok(html.includes(`vscode.postMessage(${command})`), `posts ${command}`);
+  assert.ok(html.includes("vscode.postMessage({ command: document.body.dataset.status === 'running' ? 'steer' : 'send', text })"), 'Enter sends, or steers the running round');
+  assert.match(html, /task\.disabled = false; send\.disabled = false;/, 'the composer stays usable while a round runs');
+  for (const command of ["{ command: 'cancel' }", "{ command: 'new' }", "{ command: 'history' }", "{ command: 'copy', index: Number(button.dataset.index) }", "{ command: 'settings' }", "{ command: 'ready' }"]) assert.ok(html.includes(`vscode.postMessage(${command})`), `posts ${command}`);
   assert.match(html, /event\.key === 'Enter' && !event\.shiftKey/);
   assert.match(html, /setInterval\(tick, 1000\)/); assert.match(html, /clearInterval\(timer\)/);
   assert.doesNotMatch(html, /onclick=|onkeydown=/);

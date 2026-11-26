@@ -5,6 +5,8 @@ All notable changes to Turnhuddle are listed here. Versions follow [Semantic Ver
 ## 0.3.0 — 2026-11-26
 
 ### Added
+- **Live agent sessions** (`turnhuddle.engine: "live"`, default), the way T3 Code runs agents: one long-lived session per thread and seat. Codex via `codex app-server`, Claude via the bundled Claude Agent SDK pointed at your own CLI, Gemini and other agents via ACP. Sessions are resumed after a reload, Stop interrupts a turn and keeps the session, and idle sessions close after 20 minutes.
+- **Steering:** type while a round runs. Claude and Codex take the message into the running turn; others get it before their next turn. It's shown as *sent mid-round*.
 - The chat moved to VS Code's **secondary side bar** (1.106+) as a single "Turnhuddle" panel, like Claude Code; older VS Code keeps an activity-bar container. New view ids, so 0.2's cached "Conversations" section disappears.
 - **Threads** list in the activity bar: bookmarked, recent (running first) and, on demand, archived, with Bookmark/Archive/Rename on each row. Editor-title button and **Open Chat** command.
 - Each seat keeps its own CLI session for the whole thread (`claude --resume`, `codex exec resume`); later turns send only new messages (`turnhuddle.keepAgentSessions`).

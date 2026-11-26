@@ -6,7 +6,7 @@ export { escapeHtml };
 export type Status = 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
 export type FinalStatus = Exclude<Status, 'idle' | 'running'>;
 export type Role = Message['role'];
-export interface ViewMessage { role: Role; content: string; receivedAt: string; verdict?: Verdict; agent?: AgentSpec }
+export interface ViewMessage { role: Role; content: string; receivedAt: string; verdict?: Verdict; agent?: AgentSpec; steer?: boolean }
 /** Text streamed so far by the agent whose turn is running, plus its latest activity note. Cleared when the message lands. */
 export interface PartialMessage { role: Seat; text: string; activity?: string }
 /** The CLI session a conversation was continued from (see "Continue from" in the README). */
@@ -54,10 +54,10 @@ export function resumeConversation(state: ConversationState, at: Date = new Date
   return { ...rest, status: 'running', roundStartedAt: at.toISOString() };
 }
 /** Number of rounds, one per user message. */
-export function rounds(state: ConversationState): number { return state.messages.filter(m => m.role === 'user').length; }
+export function rounds(state: ConversationState): number { return state.messages.filter(m => m.role === 'user' && !m.steer).length; }
 export function receiveMessage(state: ConversationState, id: string, message: Message, at: Date = new Date()): ConversationState {
   const { partial: _partial, ...rest } = state;
-  return { ...rest, id, messages: [...state.messages, { role: message.role, content: message.content, receivedAt: at.toISOString(), ...(message.verdict ? { verdict: message.verdict } : {}), ...(message.agent ? { agent: message.agent } : {}) }] };
+  return { ...rest, id, messages: [...state.messages, { role: message.role, content: message.content, receivedAt: at.toISOString(), ...(message.verdict ? { verdict: message.verdict } : {}), ...(message.agent ? { agent: message.agent } : {}), ...(message.steer ? { steer: true } : {}) }] };
 }
 /** Streamed text or an activity note for the running turn. Ignored unless the conversation is running. */
 export function receiveProgress(state: ConversationState, role: Seat, progress: Progress): ConversationState {
@@ -113,8 +113,8 @@ export function conversationTitle(state: ConversationState): string {
 export function turnsInRound(state: ConversationState): number {
   const since = state.roundStartedAt;
   const inRound = since ? state.messages.filter(m => m.receivedAt >= since) : state.messages;
-  const lastUser = inRound.map(m => m.role).lastIndexOf('user');
-  return Math.max(inRound.length - lastUser - 1, 0);
+  const lastUser = inRound.map(m => m.role === 'user' && !m.steer).lastIndexOf(true);
+  return inRound.slice(lastUser + 1).filter(m => m.role !== 'user').length;
 }
 /** Index of the running stage (0 drafter, 1 reviewer) or -1 when nothing runs. Agents alternate, so this is the parity of the turn. */
 export function currentStage(state: ConversationState): number {
@@ -214,14 +214,14 @@ export function renderWelcome(logos: Logos = {}, options: WelcomeOptions = {}): 
 export function renderConversation(state: ConversationState, logos: Logos = {}, options: WelcomeOptions = {}): string {
   if (state.status === 'idle') return `${renderHeader(state)}${renderWelcome(logos, options)}`;
   const running = state.status === 'running';
-  const user = (content: string, time: string) => `<article class="msg msg-user"><div class="msg-meta"><time datetime="${escapeHtml(time)}">${formatTime(time)}</time></div><div class="user-card"><div class="content">${renderMarkdown(content)}</div></div></article>`;
+  const user = (content: string, time: string, steer?: boolean) => `<article class="msg msg-user${steer ? ' steer' : ''}"><div class="msg-meta">${steer ? '<span class="steer-tag" title="Sent while the agents were working">sent mid-round</span>' : ''}<time datetime="${escapeHtml(time)}">${formatTime(time)}</time></div><div class="user-card"><div class="content">${renderMarkdown(content)}</div></div></article>`;
   const verdictTag = (verdict?: Verdict) => verdict ? `<span class="verdict verdict-${verdict}" title="${verdict === 'agree' ? 'Considers the current recommendation final' : 'Wants further changes'}">${verdict === 'agree' ? 'agrees' : 'continues'}</span>` : '';
   const agentClass = (spec: AgentSpec) => `msg msg-agent p-${escapeHtml(provider(spec.provider)?.id ?? 'other')}`;
   const agent = (m: ViewMessage & { role: Seat }, index: number) => `<article class="${agentClass(messageAgent(state, m))} msg-${m.role}" data-index="${index}"><div class="msg-author">${avatar(messageAgent(state, m), logos)}<span class="name" title="${escapeHtml(`${ROLE_LABELS[m.role]}${messageAgent(state, m).model ? ` · model ${messageAgent(state, m).model}` : ''}`)}">${escapeHtml(authorName(state, m))}</span>${verdictTag(m.verdict)}<time datetime="${escapeHtml(m.receivedAt)}">${formatTime(m.receivedAt)}</time><button class="icon copy" type="button" data-command="copy" data-index="${index}" title="Copy message">${ICONS.copy}</button></div><div class="content">${renderMarkdown(m.content)}</div></article>`;
   // Before the first publish event the task is shown from the state; afterwards every message, user replies included, is rendered.
   const list: ViewMessage[] = state.messages.length ? state.messages : state.task ? [{ role: 'user', content: state.task, receivedAt: state.startedAt ?? '' }] : [];
   let round = 0;
-  const turns = list.map((m, index) => `${m.role === 'user' && ++round > 1 ? `<div class="round-divider"><span>Round ${round}</span></div>` : ''}${m.role === 'user' ? user(m.content, m.receivedAt) : agent(m as ViewMessage & { role: Seat }, index)}`).join('');
+  const turns = list.map((m, index) => `${m.role === 'user' && !m.steer && ++round > 1 ? `<div class="round-divider"><span>Round ${round}</span></div>` : ''}${m.role === 'user' ? user(m.content, m.receivedAt, m.steer) : agent(m as ViewMessage & { role: Seat }, index)}`).join('');
   let thinking = '';
   if (running) {
     const role = nextRole(state); const since = pendingSince(state) ?? new Date().toISOString();
@@ -289,7 +289,8 @@ button.title:hover { background: var(--th-surface); } button.title:focus-visible
 .welcome h1 { font-size: 1.2em; margin: 0 0 8px; } .welcome p { margin: 0 auto 8px; max-width: 34em; color: var(--th-muted); } .welcome .fine { font-size: 0.85em; opacity: 0.8; }
 .thread { display: flex; flex-direction: column; gap: 14px; }
 .msg { min-width: 0; }
-.msg-meta { display: flex; justify-content: flex-end; margin-bottom: 4px; font-size: 0.8em; color: var(--th-muted); }
+.msg-meta { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 4px; font-size: 0.8em; color: var(--th-muted); }
+.steer-tag { font-style: italic; } .msg-user.steer .user-card { border-style: dashed; }
 .user-card { padding: 9px 12px; border-radius: 10px; background: var(--vscode-input-background, var(--th-surface)); border: 1px solid var(--th-border); }
 .msg-author { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; font-size: 0.9em; }
 .msg-author .name { font-weight: 600; } .msg-author time { color: var(--th-muted); font-size: 0.9em; }
@@ -366,7 +367,7 @@ body[data-status="running"] .mode { display: none; }
 #send:disabled { opacity: 0.35; }
 #stop { display: none; background: var(--vscode-button-secondaryBackground, var(--th-surface)); color: var(--vscode-button-secondaryForeground, inherit); }
 #stop:hover { background: var(--vscode-button-secondaryHoverBackground, var(--th-surface)); }
-body[data-status="running"] #stop { display: inline-flex; } body[data-status="running"] #send { display: none; }
+body[data-status="running"] #stop { display: inline-flex; } body[data-status="running"] #send { background: var(--vscode-button-secondaryBackground, var(--th-surface)); color: var(--vscode-button-secondaryForeground, inherit); }
 .hint { margin: 6px 2px 0; font-size: 0.76em; color: var(--th-muted); opacity: 0.8; }
 /* Status shows only while a round runs; the thread already says how the last round ended. The effort is in the seats' tooltips. */
 body:not([data-status="running"]) .run-status { display: none; } .composer-bar .pill { display: none; }
@@ -422,8 +423,8 @@ body:not([data-status="running"]) .run-status { display: none; } .composer-bar .
   const grow = () => { task.style.height = 'auto'; task.style.height = Math.min(task.scrollHeight, 200) + 'px'; };
   const submit = () => {
     const text = task.value.trim();
-    if (!text || document.body.dataset.status === 'running') return;
-    vscode.postMessage({ command: 'send', text });
+    if (!text) return;
+    vscode.postMessage({ command: document.body.dataset.status === 'running' ? 'steer' : 'send', text });
     task.value = ''; grow();
   };
   window.addEventListener('message', event => {
@@ -434,9 +435,9 @@ body:not([data-status="running"]) .run-status { display: none; } .composer-bar .
     const status = meta.status;
     document.body.dataset.status = status;
     const running = status === 'running';
-    task.disabled = running; send.disabled = running;
+    task.disabled = false; send.disabled = false;
     const ask = typeof event.data.ask === 'string' ? event.data.ask : 'Ask Claude and Codex…';
-    task.placeholder = status === 'idle' ? ask : running ? 'Conversation in progress…' : 'Reply to continue the conversation…';
+    task.placeholder = status === 'idle' ? ask : running ? 'Steer the agents… (sent into the running turn)' : 'Reply to continue the conversation…';
     if (event.data.seats) for (const button of document.querySelectorAll('#relay .seat')) {
       const seat = event.data.seats[button.dataset.seat];
       if (!seat) continue;

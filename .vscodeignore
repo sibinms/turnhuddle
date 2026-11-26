@@ -12,3 +12,4 @@ scripts/**
 .claude/**
 .screenshots/**
 docs/**
+!node_modules/@anthropic-ai/claude-agent-sdk/**

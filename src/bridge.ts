@@ -9,7 +9,7 @@ export const SEATS: readonly Seat[] = ['drafter', 'reviewer'];
 /** Who sits in a seat: a provider id (see providers.ts), an optional model for its --model flag, and that model's display name. */
 export interface AgentSpec { provider: string; model?: string; label?: string }
 /** `agent` records which provider and model wrote an agent message, since seats can change between rounds. */
-export type Message = { role: 'user' | Seat; content: string; verdict?: Verdict; agent?: AgentSpec };
+export type Message = { role: 'user' | Seat; content: string; verdict?: Verdict; agent?: AgentSpec; /** A user message sent while a round was running (steered into the turn, or queued for the next one). Not a new round. */ steer?: boolean };
 /** Live progress from a running turn: streamed answer text, or a short note about what the agent is doing. */
 export type Progress = { type: 'delta'; text: string } | { type: 'activity'; text: string };
 export type Adapter = (prompt: string, onProgress?: (progress: Progress) => void) => Promise<string>;
@@ -207,7 +207,12 @@ export type Publish = (id: string, message: Message) => void;
 /** How each agent receives the conversation: `replay` sends the whole history in the prompt; `delta` sends only what arrived since its own last turn, for an agent that keeps its own CLI session. */
 export type ContextMode = 'replay' | 'delta';
 export interface RelayOptions {
-  context?: Partial<Record<Seat, ContextMode>>; mode?: RoundMode; maxTurns?: number; onTurn?: (turn: number, seat: Seat) => void;
+  context?: Partial<Record<Seat, ContextMode>>;
+  /** Per-turn context choice; wins over `context`. Live sessions that already hold the conversation get only what's new. */
+  contextFor?: (seat: Seat) => ContextMode;
+  /** Messages the user sent while the round ran; added to the history before the next turn so both agents see them. */
+  takeQueued?: () => string[];
+  mode?: RoundMode; maxTurns?: number; onTurn?: (turn: number, seat: Seat) => void;
   /** Who sits in each seat, recorded on every message they write. */
   seats?: Partial<Record<Seat, AgentSpec>>;
   /** Names used in prompts. */
@@ -242,8 +247,10 @@ export async function relay(conversation: Conversation, userMessage: string, ada
   const names = options.names ?? GENERIC_NAMES;
   const maxTurns = Math.max(2, Math.floor(options.maxTurns ?? DEFAULT_MAX_TURNS));
   const take = async (seat: Seat, turn: number): Promise<Message> => {
+    // Already shown in the chat when sent; here they join the history the agents see.
+    for (const text of options.takeQueued?.() ?? []) history.push({ role: 'user', content: text, steer: true });
     options.onTurn?.(turn, seat);
-    const prompt = buildPrompt(id, seat, history, options.context?.[seat] ?? 'replay', mode, names);
+    const prompt = buildPrompt(id, seat, history, options.contextFor?.(seat) ?? options.context?.[seat] ?? 'replay', mode, names);
     const content = await adapters[seat](prompt, progress => onProgress?.(id, seat, progress));
     if (!content.trim()) throw new Error(`${names[seat]} returned an empty response.`);
     const agent = options.seats?.[seat] ? { agent: options.seats[seat] as AgentSpec } : {};

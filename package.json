@@ -191,6 +191,11 @@
         "title": "Show or Hide Archived Threads",
         "category": "Turnhuddle",
         "icon": "$(archive)"
+      },
+      {
+        "command": "turnhuddle.steer",
+        "title": "Send to the Running Turn",
+        "category": "Turnhuddle"
       }
     ],
     "configuration": {
@@ -304,6 +309,19 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Each seat keeps its own Claude Code or Codex session for the whole thread: later turns resume it (`claude --resume`, `codex exec resume`) and send only the new messages, instead of replaying the whole conversation every turn. Faster and cheaper on long threads. Turn off to replay every turn."
+        },
+        "turnhuddle.engine": {
+          "type": "string",
+          "enum": [
+            "live",
+            "cli"
+          ],
+          "default": "live",
+          "enumDescriptions": [
+            "One long-lived agent per thread and seat, like T3 Code: Codex through `codex app-server`, Claude through the Claude Agent SDK (pointed at your own `claude`), Gemini through ACP. Streams, can be steered and stopped mid-turn.",
+            "A CLI process per turn (`claude -p`, `codex exec`), resuming each seat's session when `turnhuddle.keepAgentSessions` is on."
+          ],
+          "markdownDescription": "How Turnhuddle talks to the agents."
         }
       }
     },
@@ -419,6 +437,10 @@
         {
           "command": "turnhuddle.toggleArchived",
           "when": "false"
+        },
+        {
+          "command": "turnhuddle.steer",
+          "when": "false"
         }
       ],
       "view/item/context": [
@@ -497,5 +519,8 @@
   },
   "activationEvents": [
     "onStartupFinished"
-  ]
+  ],
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.332"
+  }
 }

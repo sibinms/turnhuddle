@@ -114,7 +114,7 @@ const steps = async (report, save) => {
     await config.update('claudePath', claudePath, vscode.ConfigurationTarget.Global);
     await config.update('codexPath', codexPath, vscode.ConfigurationTarget.Global);
   }
-  assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
+  assert.ok(children().length <= api.liveSessionCount(), `at most one process per live session: ${JSON.stringify(children())}, sessions ${api.liveSessionCount()}`);
   // 2. Cancellation mid-invocation
   log('step 2: cancellation'); save();
   assert.equal(await vscode.commands.executeCommand('turnhuddle.cancel'), false, 'cancel with nothing running returns false');
@@ -128,8 +128,10 @@ const steps = async (report, save) => {
   log('cancelled result:', cancelled.status, cancelled.error);
   assert.equal(cancelled.status, 'cancelled'); assert.match(cancelled.error, /cancelled/);
   assert.deepEqual(cancelled.messages.map(m => m.role), ['user'], 'no agent turns after cancellation');
-  await waitFor(() => !alive(child.pid), 5000, 'claude child to exit');
-  assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
+  // Live engine: Stop interrupts the turn and keeps the session (like T3 Code); closing the thread's sessions ends the process.
+  assert.ok(alive(child.pid) || api.liveSessionCount() === 0, 'the live Claude session survives Stop');
+  api.closeLiveSessions();
+  await waitFor(() => !alive(child.pid) && children().length === 0, 15000, `agent processes to exit once the sessions are closed: ${JSON.stringify(children())}`);
   const cancelledState = await sameState();
   assert.equal(cancelledState.status, 'cancelled'); assert.equal(cancelledState.task, TASK); assert.equal(cancelledState.id, cancelled.id);
   assert.deepEqual(cancelledState.messages.map(m => m.role), ['user']); assert.match(cancelledState.error, /cancelled/);
@@ -141,7 +143,7 @@ const steps = async (report, save) => {
   try {
     const failed = await vscode.commands.executeCommand('turnhuddle.start', { task: TASK });
     log('invalid path result:', failed.status, failed.error);
-    assert.equal(failed.status, 'failed'); assert.match(failed.error, /Cannot run \/nonexistent\/turnhuddle-claude: spawn .*ENOENT/);
+    assert.equal(failed.status, 'failed'); assert.match(failed.error, /Cannot run \/nonexistent\/turnhuddle-claude: no such file\. Check turnhuddle\.claudePath/);
     const failedState = await sameState();
     assert.equal(failedState.status, 'failed'); assert.equal(failedState.error, failed.error); assert.deepEqual(failedState.messages.map(m => m.role), ['user']);
     report.steps.invalidPath = { status: failed.status, error: failed.error, state: failedState };
@@ -170,7 +172,7 @@ const steps = async (report, save) => {
   assert.deepEqual(result.messages.map(m => m.role), ['user', 'drafter', 'reviewer', 'drafter']);
   assert.equal(result.messages[0].content, TASK);
   for (const message of result.messages.slice(1)) assert.ok(message.content.trim().length > 20, `${message.role} response too short`);
-  assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
+  assert.ok(children().length <= api.liveSessionCount(), `at most one process per live session: ${JSON.stringify(children())}, sessions ${api.liveSessionCount()}`);
   assert.equal(snapshot(folder), before, 'workspace files changed during the conversation');
   // Sidebar state after the conversation, and the live sequence of updates it rendered on the way
   await vscode.commands.executeCommand('turnhuddle.threads.focus'); await vscode.commands.executeCommand('turnhuddle.focus'); await shot('layout-conversation');
@@ -212,7 +214,7 @@ const steps = async (report, save) => {
   assert.deepEqual(replyState.messages.map(m => m.role), ['user', 'drafter', 'reviewer', 'drafter', 'user', 'drafter', 'reviewer', 'drafter'], 'panel shows both rounds');
   assert.deepEqual(replyEvents, ['running:udrd', 'running:udrdu', 'running:udrdud', 'running:udrdudr', 'running:udrdudrd', 'completed:udrdudrd'], 'panel updated once per arrival in the second round');
   assert.ok(replyState.roundStartedAt > replyState.messages[3].receivedAt && replyState.roundStartedAt <= replyState.messages[4].receivedAt, 'round start sits between the rounds');
-  assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
+  assert.ok(children().length <= api.liveSessionCount(), `at most one process per live session: ${JSON.stringify(children())}, sessions ${api.liveSessionCount()}`);
   assert.equal(snapshot(folder), before, 'workspace files changed during the follow-up');
   // 6. History: the conversation is listed, saved to disk, can be closed, reopened, archived and restored
   log('step 6: history'); save();
@@ -268,7 +270,7 @@ const steps = async (report, save) => {
   assert.equal(list.length, 6); assert.deepEqual(list.slice(0, 2).map(s => s.status), ['completed', 'completed']);
   assert.equal(await vscode.commands.executeCommand('turnhuddle.refreshSessions'), 6, 'reloading from disk finds the same six, no duplicates');
   assert.equal((await vscode.commands.executeCommand('turnhuddle.listSessions')).length, 6);
-  assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
+  assert.ok(children().length <= api.liveSessionCount(), `at most one process per live session: ${JSON.stringify(children())}, sessions ${api.liveSessionCount()}`);
   assert.equal(snapshot(folder), before, 'workspace files changed during the concurrent conversations');
   // 8. Continue from a real Claude Code session: create one directly with the CLI in the workspace folder, then continue it in Turnhuddle
   log('step 8: continue from a Claude Code session'); save();
@@ -293,7 +295,7 @@ const steps = async (report, save) => {
   assert.ok(continuedState.agentSessions && continuedState.agentSessions.drafter && continuedState.agentSessions.drafter.provider === 'claude' && continuedState.agentSessions.drafter.id !== created.session_id, 'Claude continued in a forked session, not the original');
   assert.ok(continuedState.agentSessions.reviewer && continuedState.agentSessions.reviewer.provider === 'codex', 'Codex thread id recorded for later turns');
   assert.equal((await vscode.commands.executeCommand('turnhuddle.listSessions')).find(s => s.id === continued.id).rounds, 1);
-  assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
+  assert.ok(children().length <= api.liveSessionCount(), `at most one process per live session: ${JSON.stringify(children())}, sessions ${api.liveSessionCount()}`);
   assert.equal(snapshot(folder), before, 'workspace files changed during the continued conversation');
   // 9. Agreement mode: the agents alternate until both say AGREE back to back (or the cap), verdicts are shown and the outcome recorded
   log('step 9: agreement round'); save();
@@ -320,7 +322,7 @@ const steps = async (report, save) => {
     if (agreedState.outcome.kind === 'agreed') { assert.equal(agents[agents.length - 1].verdict, 'agree'); assert.equal(agents[agents.length - 2].verdict, 'agree'); }
     else assert.equal(agents.length, 6);
     assert.deepEqual(agreedState.messages.map(m => m.verdict), agreed.messages.map(m => m.verdict), 'panel state carries the verdicts');
-    assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
+    assert.ok(children().length <= api.liveSessionCount(), `at most one process per live session: ${JSON.stringify(children())}, sessions ${api.liveSessionCount()}`);
     assert.equal(snapshot(folder), before, 'workspace files changed during the agreement round');
   } finally { await config.update('roundMode', 'fixed', vscode.ConfigurationTarget.Global); await config.update('maxTurnsPerRound', undefined, vscode.ConfigurationTarget.Global); }
   // 10. Any agent and model in either seat: Codex drafts and Claude Haiku reviews, chosen through the picker command; the models list comes from this machine.
@@ -347,9 +349,27 @@ const steps = async (report, save) => {
     assert.ok(history.some(s => s.id === swapped.id));
     assert.deepEqual(await vscode.commands.executeCommand('turnhuddle.swapSeats'), { drafter: swappedState.seats.reviewer, reviewer: swappedState.seats.drafter });
     assert.equal(api.getState().seats.drafter.provider, 'claude', 'swapping changes the open conversation for its next round');
-    assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
+    assert.ok(children().length <= api.liveSessionCount(), `at most one process per live session: ${JSON.stringify(children())}, sessions ${api.liveSessionCount()}`);
     assert.equal(snapshot(folder), before, 'workspace files changed during the swapped round');
   } finally { await config.update('drafter', undefined, vscode.ConfigurationTarget.Global); await config.update('reviewer', undefined, vscode.ConfigurationTarget.Global); }
+  // 11. Steering: a message typed while a round runs goes into the running turn (Claude and Codex) and joins the history.
+  log('step 11: steering'); save();
+  assert.equal(await vscode.commands.executeCommand('turnhuddle.clear'), true);
+  const steerRun = vscode.commands.executeCommand('turnhuddle.reply', { message: 'In two short sentences, suggest a name for a function that sums an array of numbers. Do not create or modify files.', source: 'sidebar' });
+  await waitFor(() => api.getState().status === 'running' && api.getState().messages.length >= 1, 30000, 'the round to start');
+  await sleep(2500);
+  const how = await vscode.commands.executeCommand('turnhuddle.steer', { message: 'Also include the word ZEBRA somewhere in your reply.' });
+  const steered = await steerRun;
+  const steeredState = await sameState();
+  report.steps.steer = { how, status: steered.status, error: steered.error, messages: steeredState.messages.map(m => [m.role, !!m.steer, m.content.slice(0, 160)]) };
+  log('steer:', how, JSON.stringify(report.steps.steer.messages));
+  assert.equal(steered.status, 'completed', steered.error); assert.ok(['steered', 'queued'].includes(how), `steer result ${how}`);
+  assert.ok(steeredState.messages.some(m => m.role === 'user' && m.steer && /ZEBRA/.test(m.content)), 'the mid-round message joins the history');
+  assert.equal(steeredState.messages.filter(m => m.role === 'user' && !m.steer).length, 1, 'still one round');
+  assert.ok(steeredState.messages.some(m => m.role !== 'user' && /zebra/i.test(m.content)), 'an agent acted on the message sent mid-round');
+  // Shutting the sessions down leaves no agent processes behind.
+  api.closeLiveSessions();
+  await waitFor(() => children().length === 0, 15000, `agent processes to exit: ${JSON.stringify(children())}`);
   report.finished = new Date().toISOString(); report.ok = true; save();
   log('all checks passed');
 };

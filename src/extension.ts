@@ -10,6 +10,10 @@ import { claudeModelLabel, discoverModels, ModelChoice } from './models';
 import { listVendorSessions, VendorSession } from './vendorSessions';
 import { CHAT_VIEW_PRIMARY, CHAT_VIEW_SECONDARY, ConversationViewProvider } from './sidebar';
 import { ThreadsView } from './threadsView';
+import { liveAdapter, LiveSession, SessionPool } from './live';
+import { codexSessions } from './codexLive';
+import { claudeSessions } from './claudeLive';
+import { geminiSessions } from './acpLive';
 import { supportsSecondarySidebar } from './threads';
 import { checkDue, checkForUpdate, downloadVsix, Fetcher, UpdateCheck } from './updates';
 import { Agent, defaultExtensionRoots, EXTENSION_IDS, locate, Located, loginShellLookup, SOURCE_LABELS } from './cliLocator';
@@ -31,12 +35,18 @@ export interface TurnhuddleApi {
   logoSources(): Record<string, string>;
   /** Who sits in each seat: for the open conversation, or for new ones when none is open. */
   seats(): Seats;
+  /** Live agent sessions open now, and closing them all (the agents' processes exit). */
+  liveSessionCount(): number; closeLiveSessions(): void;
   /** The chat panel in use: the secondary side bar's on VS Code 1.106+, else the activity bar's. */
   chatViewId(): string;
   /** Models each provider offers on this machine. */
   models(provider: ProviderId): Promise<ModelChoice[]>;
 }
 const running = new Map<string, AbortController>();
+/** Live agent sessions (the default engine): one per thread and seat. */
+let poolRef: SessionPool | undefined;
+/** Messages sent while a round ran, waiting for the next turn of that thread. */
+const queued = new Map<string, string[]>();
 let sessionsRef: SessionManager | undefined;
 export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
   const output = vscode.window.createOutputChannel('Turnhuddle');
@@ -46,6 +56,9 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
   sessionsRef = sessions;
   const loaded = sessions.load().then(count => { if (count) output.appendLine(`Loaded ${count} saved conversation${count === 1 ? '' : 's'} from ${historyDir}`); }, error => output.appendLine(`Could not load saved conversations: ${String(error)}`));
   const settings = () => vscode.workspace.getConfiguration('turnhuddle');
+  const pool = new SessionPool({ claude: claudeSessions(), codex: codexSessions([], String(context.extension.packageJSON.version ?? '0.0.0')), gemini: geminiSessions() });
+  poolRef = pool;
+  context.subscriptions.push({ dispose: () => pool.closeAll() });
   // ---------- seats and models ----------
   const modelCache = new Map<ProviderId, ModelChoice[]>();
   const models = async (id: ProviderId, refresh = false): Promise<ModelChoice[]> => {
@@ -132,6 +145,13 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
         if (!def) { const error = `Unknown agent "${seats[seat].provider}" in the ${seat} seat. Pick another from the chat.`; void vscode.window.showErrorMessage(error); return { status: 'failed', id: conversationId, messages, error }; }
         const cli = await findCli(def.id);
         if (!cli) { void reportMissing(def.id); return { status: 'failed', id: conversationId, messages, error: missingCliMessage(def.id) }; }
+        if (cli.source === 'setting' && /[\\/]/.test(cli.path) && !existsSync(cli.path)) {
+          const error = `Cannot run ${cli.path}: no such file. Check turnhuddle.${def.id}Path, or clear it to find the ${def.product} CLI automatically.`;
+          if (!conversationId) { conversationId = randomUUID(); sessions.create(conversationId, text, existing?.cwd && existsSync(existing.cwd) ? existing.cwd : folder.uri.fsPath, new Date(), origin, seats); }
+          sessions.update(conversationId, state => finishConversation(receiveMessage(state, conversationId as string, { role: 'user', content: text }), 'failed', new Date(), error));
+          output.appendLine(error); if (source !== 'sidebar') void vscode.window.showErrorMessage(error);
+          return { status: 'failed', id: conversationId, messages: [{ role: 'user', content: text }], error };
+        }
         clis[seat] = cli;
       }
       const cwd = existing?.cwd && existsSync(existing.cwd) ? existing.cwd : folder.uri.fsPath;
@@ -157,7 +177,31 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
       };
       const contextFor = (seat: Seat): ContextMode => (conversationOrigin || keepSessions) && provider(seats[seat].provider)?.resume && sessions.getConversation(thisId)?.agentSessions?.[seat]?.provider === seats[seat].provider ? 'delta' : 'replay';
       const effortFor = (id: string): string | undefined => { const key = provider(id)?.effortSetting; return key ? config.get<string>(key, id === 'codex' ? 'medium' : 'inherit') : undefined; };
-      const adapterFor = (seat: Seat) => { const spec = seats[seat]; return agentAdapter(PROVIDERS[spec.provider as ProviderId], (clis[seat] as Located).path, limits, { model: spec.model, effort: effortFor(spec.provider) }, sessionFor(seat)); };
+      // The live engine (default, like T3 Code): each seat talks to one long-lived agent for the whole thread — Codex through
+      // `codex app-server`, Claude through the Claude Agent SDK, Gemini and other agents through ACP. `turnhuddle.engine: "cli"`
+      // runs a CLI process per turn instead (resuming each seat's session when keepAgentSessions is on).
+      const live = config.get<string>('engine', 'live') !== 'cli';
+      const knows = new Map<Seat, LiveSession>();
+      const liveFor = (seat: Seat): LiveSession | undefined => {
+        const spec = seats[seat];
+        if (!live || !pool.supports(spec.provider)) return undefined;
+        const recorded = sessions.getConversation(thisId)?.agentSessions?.[seat];
+        const resume = recorded?.provider === spec.provider ? recorded.id : undefined;
+        const fork = !!conversationOrigin && conversationOrigin.provider === spec.provider && resume === conversationOrigin.sessionId && provider(spec.provider)?.resume === 'fork';
+        const before = pool.get(thisId, seat);
+        const session = pool.acquire(thisId, seat, { provider: spec.provider, executable: (clis[seat] as Located).path, cwd, resume, fork, model: spec.model, effort: effortFor(spec.provider), onSession: id => sessions.update(thisId, state => withAgentSession(state, seat, spec.provider, id)) });
+        if (session === before || resume) knows.set(seat, session);
+        return session;
+      };
+      const adapterFor = (seat: Seat) => {
+        const spec = seats[seat];
+        const session = liveFor(seat);
+        if (!session) return agentAdapter(PROVIDERS[spec.provider as ProviderId], (clis[seat] as Located).path, limits, { model: spec.model, effort: effortFor(spec.provider) }, sessionFor(seat));
+        const turn = liveAdapter(session, { model: spec.model, effort: effortFor(spec.provider) }, { ...limits, name: names[seat] });
+        return async (prompt: string, onProgress?: (p: import('./bridge').Progress) => void) => { const reply = await turn(prompt, onProgress); knows.set(seat, session); return reply; };
+      };
+      /** A live agent that already holds the conversation (resumed, or answered earlier in this thread) gets only what's new. */
+      const contextNow = (seat: Seat): ContextMode => live && pool.supports(seats[seat].provider) ? (knows.has(seat) ? 'delta' : 'replay') : contextFor(seat);
       const limits = { cwd, timeoutMs: config.get<number>('timeoutSeconds', 180) * 1000, maxBytes: config.get<number>('maxOutputBytes', 1048576), signal: controller.signal };
       running.set(conversationId, controller);
       let outcome: import('./bridge').RoundOutcome | undefined;
@@ -187,7 +231,7 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
             }, (_id, seat, update) => {
               sessions.update(thisId, state => receiveProgress(state, seat, update));
               if (update.type === 'activity') progress.report({ message: `${names[seat]}: ${update.text}` });
-            }, { seats, names, context: { drafter: contextFor('drafter'), reviewer: contextFor('reviewer') }, mode: config.get<RoundMode>('roundMode', 'agreement'), maxTurns: config.get<number>('maxTurnsPerRound', DEFAULT_MAX_TURNS), onTurn: (turn, seat) => progress.report({ message: `turn ${turn}: ${names[seat]}` }) });
+            }, { seats, names, contextFor: contextNow, takeQueued: () => { const list = queued.get(thisId) ?? []; queued.delete(thisId); return list; }, mode: config.get<RoundMode>('roundMode', 'agreement'), maxTurns: config.get<number>('maxTurnsPerRound', DEFAULT_MAX_TURNS), onTurn: (turn, seat) => progress.report({ message: `turn ${turn}: ${names[seat]}` }) });
             outcome = result.outcome;
             output.appendLine(outcome.kind === 'agreed' ? `\nBoth agreed after ${outcome.turns} turns.` : outcome.kind === 'limit' ? `\nNo agreement after ${outcome.turns} turns (limit reached).` : '\nConversation complete.');
           } finally { subscription.dispose(); }
@@ -206,7 +250,7 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
         output.appendLine(`\n${text}`);
         if (source !== 'sidebar') void vscode.window.showErrorMessage(text);
         return { status: 'failed', id: thisId, messages, error: text };
-      } finally { if (running.get(thisId) === controller) running.delete(thisId); syncRunning(); }
+      } finally { if (running.get(thisId) === controller) running.delete(thisId); pool.release(thisId, 'drafter'); pool.release(thisId, 'reviewer'); syncRunning(); }
     } catch (error) {
       const text = String(error);
       output.appendLine(`\n${text}`);
@@ -243,6 +287,7 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
     const controller = id ? running.get(id) : undefined;
     if (!controller) { void vscode.window.showInformationMessage('No Turnhuddle conversation is running here.'); return false; }
     controller.abort();
+    void pool.interruptThread(id as string);
     return true;
   });
   /** Returns the panel to the welcome state. The conversation stays in the history; nothing is deleted. */
@@ -253,10 +298,25 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
     void view.reveal();
     return true;
   });
+  /** Sends a message while a round runs: into the running turn when the agent can take it (Claude, Codex), else before the next turn. Both agents see it from their next turn. */
+  register('turnhuddle.steer', async (options?: unknown): Promise<'steered' | 'queued' | 'skipped'> => {
+    const o = (options ?? {}) as { message?: string; id?: string };
+    const id = o.id ?? sessions.selectedId();
+    const message = typeof o.message === 'string' ? o.message.trim() : '';
+    if (!id || !message) return 'skipped';
+    if (!running.has(id)) { void vscode.commands.executeCommand('turnhuddle.reply', { message, source: 'sidebar', id }); return 'skipped'; }
+    queued.set(id, [...(queued.get(id) ?? []), message]);
+    sessions.update(id, state => receiveMessage(state, id, { role: 'user', content: message, steer: true }));
+    const active = pool.active(id);
+    const steered = active ? await active.session.steer(message).catch(() => false) : false;
+    output.appendLine(`\n[${id}] you (${steered ? 'steered into the running turn' : 'queued for the next turn'})\n${message}`);
+    return steered ? 'steered' : 'queued';
+  });
   register('turnhuddle.archive', (argument?: unknown): boolean => {
     const id = conversationIdFrom(argument) ?? sessions.selectedId();
     if (!id) return false;
     if (running.has(id)) { void vscode.window.showInformationMessage('Stop the running round before archiving.'); return false; }
+    pool.close(id);
     return sessions.setArchived(id, true);
   });
   /** Bookmarks the open conversation (or the given one), or removes its bookmark. Returns the new state. */
@@ -503,10 +563,13 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
     logoSources: () => ({ ...view.logoSources }) as Record<string, string>,
     seats: () => currentSeats(),
     chatViewId: () => chatView().viewId,
+    liveSessionCount: () => pool.size(),
+    closeLiveSessions: () => pool.closeAll(),
     models: id => models(id, true)
   };
 }
 export async function deactivate(): Promise<void> {
   for (const controller of running.values()) controller.abort();
+  poolRef?.closeAll();
   await sessionsRef?.flush();
 }

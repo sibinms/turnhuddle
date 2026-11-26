@@ -27,11 +27,21 @@ Conversations saved by Turnhuddle 0.2 and earlier load unchanged: their `claude`
 
 Each provider is one entry in `PROVIDERS` in `src/providers.ts`: its names, initials and colour, the CLI's executable name (which also becomes the `turnhuddle.<id>Path` setting), how to build its arguments from a model, effort and session (`args`), and how to read one line of its output (`parse`, returning streamed text, a complete message, the final result, an activity note, a session id or an error). `agentAdapter` turns that into a turn runner that streams to the chat. Add the id to `Agent` in `src/cliLocator.ts`, a model list to `MODEL_SOURCES` in `src/models.ts`, a `turnhuddle.<id>Path` setting in `package.json`, and tests with recorded output in `test/providers.test.cjs`. Mark it `preview: true` until it has been run against the real CLI. The rest of the extension (picker, chat, prompts, history) needs no change.
 
-#### Agent sessions (the engine)
+#### The engine: live agent sessions
 
-Each seat keeps its own CLI session for the whole thread (`turnhuddle.keepAgentSessions`, on by default), the way T3 Code keeps one provider session per thread. The seat's first turn starts a session and receives the conversation so far. Later turns resume that session (`claude -p --resume <id>`, `codex exec resume <id>`) and receive only the messages since the agent's last turn, so long threads don't get slower. If a seat's provider changes, its next turn starts a fresh session with the history, a "handoff". Turnhuddle's own sessions are left out of *Continue from a CLI session*. Gemini has no resume yet, so it is always sent the full history.
+Turnhuddle drives the agents the way T3 Code does (see `docs/research/t3-code.md`). Each thread and seat gets **one long-lived agent session** (`turnhuddle.engine: "live"`, the default), talked to over the agent's own protocol:
 
-Turnhuddle does not bundle the Claude Agent SDK. Its terms don't allow third-party products to offer claude.ai login, and its streaming control protocol isn't documented for the CLI. Turnhuddle only launches your own unmodified `claude` and `codex` with documented flags. See `docs/research/t3-code.md`.
+| Provider | How | Code |
+|---|---|---|
+| Codex | `codex app-server`, JSON-RPC over stdio: `thread/start` or `thread/resume`, then per turn `turn/start`, streamed `item/agentMessage/delta`, `turn/steer`, `turn/interrupt`. Read-only sandbox, `approvalPolicy: "never"`. | `src/codexLive.ts`, `src/rpc.ts` |
+| Claude | The **Claude Agent SDK** `query()` with streaming input, pointed at your own CLI (`pathToClaudeCodeExecutable`). Plan mode, partial messages, `setModel` when the seat's model changes, `interrupt()`, steering as a `priority: "now"` message. `canUseTool` allows read-only tools and refuses the rest. | `src/claudeLive.ts` |
+| Gemini, and any ACP agent | **ACP** (Agent Client Protocol), strictly per spec: `initialize`, `session/new` or `session/load`, `session/prompt`, `session/update` chunks, `session/cancel`. Permission requests get the agent's own *reject* option. Gemini runs as `gemini --experimental-acp`. | `src/acpLive.ts` |
+
+`SessionPool` (`src/live.ts`) keeps one session per thread and seat. A session is replaced when the seat changes provider or folder, closed after 20 minutes idle, closed when the thread is archived, and closed when VS Code shuts down. A session's first turn gets the conversation so far, and later turns get only what's new. The agent's session id is saved with the thread, so after a reload the session is resumed (`thread/resume`, SDK `resume`, ACP `session/load`) rather than replayed. **Stop** interrupts the running turn and keeps the session. While a round runs you can keep typing. **Claude and Codex take the message into the running turn** (steering), and other agents get it before their next turn. Either way it joins the history, so both agents see it.
+
+`turnhuddle.engine: "cli"` falls back to a CLI process per turn (`claude -p`, `codex exec`). There, `turnhuddle.keepAgentSessions` resumes each seat's session (`--resume`, `exec resume`) instead of replaying.
+
+**About the Claude Agent SDK.** The SDK is © Anthropic and governed by Anthropic's terms, not Turnhuddle's MIT licence. Its `LICENSE.md` ships inside the VSIX, and only the SDK package is included (`.vscodeignore`). Its platform binaries are not: Turnhuddle points it at the `claude` you already have. Anthropic's [legal and compliance page](https://code.claude.com/docs/en/legal-and-compliance) says third-party developers may not offer Claude.ai login or route requests through Free, Pro, Max or Ultra plan credentials on behalf of their users without approval. Turnhuddle never reads or stores credentials; the SDK runs your own signed-in CLI. Whether that is permitted for a subscription login is not settled in the docs. Signing Claude Code in with an API key avoids the question.
 
 #### How a round ends
 

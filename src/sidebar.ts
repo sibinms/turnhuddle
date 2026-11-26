@@ -79,6 +79,7 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
     view.webview.onDidReceiveMessage((message: { command?: string; text?: unknown; index?: unknown; seat?: unknown }) => {
       if (message?.command === 'ready') this.pushNow();
       else if (message?.command === 'send') void vscode.commands.executeCommand('turnhuddle.reply', { message: typeof message.text === 'string' ? message.text : undefined, source: 'sidebar' });
+      else if (message?.command === 'steer') void vscode.commands.executeCommand('turnhuddle.steer', { message: typeof message.text === 'string' ? message.text : undefined });
       else if (message?.command === 'cancel') void vscode.commands.executeCommand('turnhuddle.cancel');
       else if (message?.command === 'new') void vscode.commands.executeCommand('turnhuddle.clear');
       else if (message?.command === 'history') void vscode.commands.executeCommand('turnhuddle.history');

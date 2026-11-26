@@ -1,10 +1,17 @@
 {
   "version": "0.3.0",
   "date": "2026-11-26",
-  "headline": "Any agent, any model, a chat on the right like Claude Code, and faster long threads",
-  "pill": "any agent and model, chat in the right sidebar, threads list",
-  "summary": "Turnhuddle 0.3 is rebuilt on what we learned from Claude Code and T3 Code. The chat moves to VS Code's right-hand sidebar with a single header, every thread is listed on the left, each seat can be Claude Code, Codex or (in preview) Gemini with any model, and each agent keeps its own session for the whole thread, so replies don't resend the conversation.",
+  "headline": "Live agents like T3 Code, any model in either seat, and a chat on the right like Claude Code",
+  "pill": "live agents, any model, chat in the right sidebar",
+  "summary": "Turnhuddle 0.3 is rebuilt on T3 Code's engine and Claude Code's layout. Each agent is now one live session for the whole thread: Codex through codex app-server, Claude through the Claude Agent SDK on your own CLI, Gemini through ACP. Pick any agent and model for either seat, steer them while they work, and find every thread in the sidebar.",
   "highlights": [
+    {
+      "tag": "New",
+      "title": "Live agents you can steer",
+      "text": "Each agent runs as one live session for the whole thread, the way T3 Code drives them: **Codex** through `codex app-server`, **Claude** through the Claude Agent SDK using your own Claude Code CLI, and **Gemini** through ACP. Replies stream, later turns send only what's new, and **Stop** halts a turn without ending the session. Type while they work: Claude and Codex take your message into the turn they're on.",
+      "image": "streaming",
+      "alt": "Claude's reply streaming into the Turnhuddle chat in the right-hand sidebar while the Threads list shows the running thread"
+    },
     {
       "tag": "Changed",
       "title": "Chat on the right, threads on the left",
@@ -21,7 +28,7 @@
     }
   ],
   "improvements": [
-    "**Faster long threads.** Each seat keeps its own Claude Code or Codex session for the whole thread (`claude --resume`, `codex exec resume`), so later turns send only what's new instead of the whole conversation. In our tests a reply round took about 30 s, against about 50 s before. Turn this off with `turnhuddle.keepAgentSessions`.",
+    "**Faster threads.** A live agent keeps the conversation, so later turns send only what's new. In our tests a follow-up turn took about 3 s, against about 12 s for a fresh one.",
     "**Gemini CLI (preview).** Seat Gemini in either role once the `gemini` CLI is installed and signed in. It's built against the CLI's documented streaming output and tested with recorded output; please report how it works for you.",
     "Built for more providers: each one is a single entry in a registry, so adding the next CLI doesn't touch the chat, history or prompts.",
     "The composer is calmer: the seats, the mode and Send. The round status appears while a round runs, and each seat's tooltip shows its model and effort; **Effort and other settings…** is in the picker.",
