@@ -1,0 +1,26 @@
+# Compiles, runs the unit tests and builds the VSIX on every push and pull request.
+# The live VS Code harness (npm run test:vscode) needs the signed-in Claude Code and Codex CLIs, so it runs locally, not here.
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx vsce package --out turnhuddle.vsix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: turnhuddle-vsix
+          path: turnhuddle.vsix
+          retention-days: 14

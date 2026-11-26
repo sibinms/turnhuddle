@@ -75,12 +75,23 @@ Next milestones: persistent CLI sessions for every conversation (no history repl
 
 ## Publication
 
-Nothing is published yet. Releasing to the Visual Studio Marketplace takes these steps; the first two can only be done by the extension's owner.
+Releases are published by GitHub Actions through the Marketplace's **trusted publishing**: no token is stored anywhere.
 
-1. **Publisher.** Sign in at <https://marketplace.visualstudio.com/manage> with a Microsoft account and create a publisher. Its ID must match `publisher` in `package.json` (currently `turnhuddle`; change it if that ID is taken). Then create an Azure DevOps personal access token with the *Marketplace → Manage* scope.
-2. **Licence.** Done: MIT, in `LICENSE` and the `license` field of `package.json`.
-3. **Repository.** Done: <https://github.com/sibinms/turnhuddle> (public); `repository`, `homepage` and `bugs` are set in `package.json`.
-4. **Check the package.** `npm run vsce:ls` lists exactly what ships; `npm run package` builds the VSIX and must print no warnings. Install the VSIX locally once more and try it.
-5. **Publish.** `npx vsce login <publisher>` with the token, then `npx vsce publish` (or upload the VSIX on the publisher page). For later versions, bump `version`, add a `CHANGELOG.md` entry, tag the commit and publish again. Open VSX (`npx ovsx publish`) is optional for VSCodium users.
+- **CI** (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request: install, compile, the Node unit tests, and a VSIX build that is kept as a downloadable artifact for 14 days.
+- **Release** (`.github/workflows/release.yml`) runs when a tag like `v0.2.1` is pushed. It checks that the tag equals `v` + the `version` in `package.json`, runs the tests, builds the VSIX, publishes it with `vsce publish --oidc`, and creates a GitHub Release with the VSIX attached and the matching `CHANGELOG.md` section as notes.
 
-The extension's Marketplace page shows `README.md`, `CHANGELOG.md` and `media/icon.png`. The official Claude and Codex logos are deliberately not bundled; see *Chat panel*.
+The publisher `Turnhuddle` has a trusted-publishing policy for repository `sibinms/turnhuddle`, workflow `release.yml` and environment `marketplace`. Renaming the workflow file or the environment breaks publishing until the policy is updated to match. To require your approval before each publish, add yourself as a required reviewer on the `marketplace` environment (repository Settings → Environments).
+
+### To release a version
+
+1. Run `npm run test:vscode` locally (it needs the signed-in CLIs, so CI cannot run it).
+2. Bump `version` in `package.json` and add a `## <version> — <date>` section to `CHANGELOG.md`; commit.
+3. Tag and push:
+
+   ```bash
+   git tag -a v0.2.1 -m "Turnhuddle 0.2.1" && git push origin main --tags
+   ```
+
+4. Watch the Release workflow in the repository's Actions tab. The Marketplace usually shows the new version a few minutes after it finishes.
+
+The Marketplace does not accept pre-release suffixes such as `-beta.1` in the version; publish a pre-release with an odd minor version and `vsce publish --pre-release` if that is ever needed. The official Claude and Codex logos are deliberately not bundled; see *Chat panel*.

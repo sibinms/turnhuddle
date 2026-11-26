@@ -1,0 +1,42 @@
+# Publishes to the Visual Studio Marketplace when a version tag (v1.2.3) is pushed.
+# Authentication is Marketplace trusted publishing: no token is stored. The publisher's policy names this
+# repository, this file (release.yml) and the "marketplace" environment, so all three must stay as they are.
+name: Release
+on:
+  push:
+    tags: ['v*']
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: marketplace
+    permissions:
+      contents: write   # create the GitHub Release
+      id-token: write   # request the OIDC token the Marketplace exchanges
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Check the tag matches package.json
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${version}"
+            exit 1
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+      - run: npm ci
+      - run: npm test
+      - run: npx vsce package --out "turnhuddle-${VERSION}.vsix"
+      - name: Publish to the Marketplace
+        run: npx vsce publish --oidc --packagePath "turnhuddle-${VERSION}.vsix"
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="$(awk -v v="## ${VERSION}" 'index($0, v) == 1 { on = 1; next } /^## / { on = 0 } on' CHANGELOG.md)"
+          gh release create "${GITHUB_REF_NAME}" "turnhuddle-${VERSION}.vsix" --title "Turnhuddle ${VERSION}" --notes "${notes:-See CHANGELOG.md}"
