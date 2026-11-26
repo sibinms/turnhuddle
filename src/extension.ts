@@ -8,7 +8,9 @@ import { conversationIdFrom, historyEntries, HistoryStore, SessionManager, Sessi
 import { agentAdapter, agentName, DEFAULT_SEATS, formatAgentSetting, parseAgentSetting, provider, PROVIDER_IDS, PROVIDERS, ProviderId, sameAgent, seatNames } from './providers';
 import { claudeModelLabel, discoverModels, ModelChoice } from './models';
 import { listVendorSessions, VendorSession } from './vendorSessions';
-import { ConversationViewProvider } from './sidebar';
+import { CHAT_VIEW_PRIMARY, CHAT_VIEW_SECONDARY, ConversationViewProvider } from './sidebar';
+import { ThreadsView } from './threadsView';
+import { supportsSecondarySidebar } from './threads';
 import { checkDue, checkForUpdate, downloadVsix, Fetcher, UpdateCheck } from './updates';
 import { Agent, defaultExtensionRoots, EXTENSION_IDS, locate, Located, loginShellLookup, SOURCE_LABELS } from './cliLocator';
 /** Returned by `turnhuddle.start` and `turnhuddle.reply` so callers (keybindings, automation, tests) can inspect the outcome of the round they ran. */
@@ -29,6 +31,8 @@ export interface TurnhuddleApi {
   logoSources(): Record<string, string>;
   /** Who sits in each seat: for the open conversation, or for new ones when none is open. */
   seats(): Seats;
+  /** The chat panel in use: the secondary side bar's on VS Code 1.106+, else the activity bar's. */
+  chatViewId(): string;
   /** Models each provider offers on this machine. */
   models(provider: ProviderId): Promise<ModelChoice[]>;
 }
@@ -66,8 +70,16 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
     return { drafter: { provider: from }, reviewer };
   };
   const seatsShown = (state: ConversationState): Seats => state.status === 'idle' ? defaultSeats() : seatsOf(state);
-  const view = new ConversationViewProvider(sessions, { seats: seatsShown });
-  view.register(context);
+  // The chat sits in the secondary side bar (right) on VS Code 1.106+, like Claude Code's; older versions get an activity-bar container.
+  const secondary = supportsSecondarySidebar(vscode.version);
+  if (!secondary) void vscode.commands.executeCommand('setContext', 'turnhuddle.noSecondarySidebar', true);
+  const chatViews = [new ConversationViewProvider(sessions, { seats: seatsShown }, CHAT_VIEW_SECONDARY), new ConversationViewProvider(sessions, { seats: seatsShown }, CHAT_VIEW_PRIMARY)];
+  for (const v of chatViews) v.register(context);
+  /** The chat panel for this VS Code: whichever has been shown, else the one its layout uses. */
+  const chatView = () => chatViews.find(v => v.resolved) ?? chatViews[secondary ? 0 : 1];
+  const view = { reveal: () => chatView().reveal(), get resolved() { return chatView().resolved; }, get visible() { return chatView().visible; }, get logoSources() { return chatView().logoSources; } };
+  const threads = new ThreadsView(sessions, id => running.has(id));
+  threads.register(context);
   const syncRunning = () => { void vscode.commands.executeCommand('setContext', 'turnhuddle.running', !!sessions.selectedId() && running.has(sessions.selectedId() as string)); };
   context.subscriptions.push({ dispose: sessions.subscribe(() => syncRunning()) });
   syncRunning();
@@ -130,18 +142,20 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
       const target: Conversation = { id: conversationId, history: (existing?.messages ?? []).map(m => ({ role: m.role, content: m.content, ...(m.agent ? { agent: m.agent } : {}) })) };
       const thisId = conversationId;
       const names = seatNames(seats);
-      // A continued conversation keeps each seat's CLI session: Claude's first turn forks the user's session (the original stays untouched)
-      // and later turns resume the fork; Codex resumes its thread in place. Such agents get only the new messages, not a replay.
-      // The other seat's first turn starts a session of its own that later rounds resume as well, while the same provider sits there.
+      // A conversation continued from a CLI session: Claude's first turn forks the user's session (the original stays untouched) and later
+      // turns resume the fork; Codex resumes its thread in place.
+      // Every seat keeps its own CLI session for the thread (turnhuddle.keepAgentSessions): the first turn starts it with the history so
+      // far, later turns resume it and send only what's new. A seat whose provider changed starts fresh with the history (a handoff).
+      const keepSessions = config.get<boolean>('keepAgentSessions', true);
       const sessionFor = (seat: Seat): (() => SessionOptions | undefined) => () => {
         const def = provider(seats[seat].provider);
-        if (!conversationOrigin || !def?.resume) return undefined;
+        if ((!conversationOrigin && !keepSessions) || !def?.resume) return undefined;
         const current = sessions.getConversation(thisId)?.agentSessions?.[seat];
         const onSession = (sessionId: string) => sessions.update(thisId, state => withAgentSession(state, seat, def.id, sessionId));
         if (!current || current.provider !== def.id) return { onSession };
-        return { resume: current.id, fork: def.resume === 'fork' && current.id === conversationOrigin.sessionId && conversationOrigin.provider === def.id, onSession };
+        return { resume: current.id, fork: def.resume === 'fork' && !!conversationOrigin && current.id === conversationOrigin.sessionId && conversationOrigin.provider === def.id, onSession };
       };
-      const contextFor = (seat: Seat): ContextMode => conversationOrigin && provider(seats[seat].provider)?.resume && sessions.getConversation(thisId)?.agentSessions?.[seat]?.provider === seats[seat].provider ? 'delta' : 'replay';
+      const contextFor = (seat: Seat): ContextMode => (conversationOrigin || keepSessions) && provider(seats[seat].provider)?.resume && sessions.getConversation(thisId)?.agentSessions?.[seat]?.provider === seats[seat].provider ? 'delta' : 'replay';
       const effortFor = (id: string): string | undefined => { const key = provider(id)?.effortSetting; return key ? config.get<string>(key, id === 'codex' ? 'medium' : 'inherit') : undefined; };
       const adapterFor = (seat: Seat) => { const spec = seats[seat]; return agentAdapter(PROVIDERS[spec.provider as ProviderId], (clis[seat] as Located).path, limits, { model: spec.model, effort: effortFor(spec.provider) }, sessionFor(seat)); };
       const limits = { cwd, timeoutMs: config.get<number>('timeoutSeconds', 180) * 1000, maxBytes: config.get<number>('maxOutputBytes', 1048576), signal: controller.signal };
@@ -201,6 +215,10 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
     }
   };
   const register = (command: string, handler: (...args: unknown[]) => unknown) => context.subscriptions.push(vscode.commands.registerCommand(command, handler));
+  register('turnhuddle.focus', async (): Promise<boolean> => { await view.reveal(); return true; });
+  register('turnhuddle.newThread', async (): Promise<boolean> => { sessions.select(undefined); await view.reveal(); return true; });
+  register('turnhuddle.unbookmark', (argument?: unknown): Promise<unknown> => Promise.resolve(vscode.commands.executeCommand('turnhuddle.toggleBookmark', argument, false)));
+  register('turnhuddle.toggleArchived', (): boolean => { threads.setShowArchived(!threads.showArchived); return threads.showArchived; });
   register('turnhuddle.getState', (): ConversationState => sessions.get());
   register('turnhuddle.listSessions', (): SessionSummary[] => sessions.summaries());
   register('turnhuddle.check', async (): Promise<string[]> => {
@@ -484,6 +502,7 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
     checkForUpdates: () => runUpdateCheck(false),
     logoSources: () => ({ ...view.logoSources }) as Record<string, string>,
     seats: () => currentSeats(),
+    chatViewId: () => chatView().viewId,
     models: id => models(id, true)
   };
 }

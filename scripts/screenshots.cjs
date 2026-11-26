@@ -15,7 +15,7 @@ const ROOT = path.join(__dirname, '..');
 const OUT = path.resolve(process.argv[2] || path.join(ROOT, 'site', 'screenshots'));
 const WORK = path.join(ROOT, '.screenshots');
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const W = 1200, H = 800, SIDEBAR = 560, SCALE = 1.5;
+const W = 1440, H = 960, SIDEBAR = 520, THREADS = 250, SCALE = 1.25;
 const NOW = Date.now();
 const at = s => new Date(NOW + s * 1000);
 const ID = '7c1e0a52-4b8d-4f0e-9a51-3d2f6b1c9e04';
@@ -186,7 +186,7 @@ function windowPage(theme, panelFile, { tree, overlay, title = 'payments-api', e
   .title{background:${t.title};border-bottom:1px solid ${t.border};display:flex;align-items:center;padding:0 14px;gap:8px}
   .title i{width:12px;height:12px;border-radius:50%;background:#ff5f57}.title i:nth-child(2){background:#febc2e}.title i:nth-child(3){background:#28c840}
   .title span{flex:1;text-align:center;color:${v.descriptionForeground};margin-right:60px}
-  .body{display:grid;grid-template-columns:48px ${SIDEBAR}px 1fr;min-height:0}
+  .body{display:grid;grid-template-columns:48px ${THREADS}px 1fr ${SIDEBAR}px;min-height:0}
   .act{background:${t.activity};border-right:1px solid ${t.border};display:flex;flex-direction:column;align-items:center;padding-top:6px;gap:4px;color:${t.activityFg}}
   .act div{width:48px;height:46px;display:grid;place-items:center;position:relative}
   .act .on{color:${t.activityActive}}.act .on::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:2px;background:${v.focusBorder}}
@@ -194,8 +194,11 @@ function windowPage(theme, panelFile, { tree, overlay, title = 'payments-api', e
   .side-h{height:35px;display:flex;align-items:center;padding:0 20px;font-size:11px;letter-spacing:.04em;color:${v.descriptionForeground}}
   .sec{height:24px;display:flex;align-items:center;gap:4px;padding:0 8px;font-size:11px;font-weight:700;border-top:1px solid ${t.border}}
   .sec .acts{margin-left:auto;display:flex;gap:8px;color:${v.descriptionForeground}}
-  .row{height:24px;display:flex;align-items:center;gap:7px;padding:0 10px 0 22px;white-space:nowrap}
-  .row .t{overflow:hidden;text-overflow:ellipsis;max-width:280px}.row .d{color:${v.descriptionForeground};font-size:12px;overflow:hidden;text-overflow:ellipsis}
+  .row{height:24px;display:flex;align-items:center;gap:7px;padding:0 10px 0 14px;white-space:nowrap;min-width:0}
+  .grp{height:22px;display:flex;align-items:center;gap:4px;padding:0 8px;font-size:11px;font-weight:700;color:${v.descriptionForeground}}
+  .side2{background:${v['sideBar-background']};border-left:1px solid ${t.border};display:flex;flex-direction:column;min-height:0}
+  .stabs{height:35px;display:flex;align-items:center;gap:4px;padding:0 10px;font-size:12px;color:${v.descriptionForeground}}.stabs b{font-weight:500;color:${t.text};background:${t.quickSel};padding:3px 8px;border-radius:4px}.stabs span{padding:3px 8px}
+  .row .t{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}.row svg{flex:none;color:${v.descriptionForeground}}.row .ok{color:${v['testing-iconPassed']}}.row .bad{color:${v['testing-iconFailed']}}.row .d{color:${v.descriptionForeground};font-size:12px;overflow:hidden;text-overflow:ellipsis}
   .row.open{background:${t.quickSel}}
   .welcome-view{padding:6px 20px 16px;font-size:13px}.welcome-view p{margin:0 0 12px;color:${t.text}}
   .welcome-btn{border-radius:4px;padding:6px 10px;text-align:center}
@@ -224,14 +227,25 @@ function windowPage(theme, panelFile, { tree, overlay, title = 'payments-api', e
   <div class="title"><i></i><i></i><i></i><span>auth.ts — ${title}</span></div>
   <div class="body">
     <div class="act"><div>${svg(ICON.files)}</div><div>${svg(ICON.search)}</div><div>${svg(ICON.git)}</div><div>${svg(ICON.run)}</div><div>${svg(ICON.ext)}</div><div class="on">${svg(ICON.turnhuddle, 24, 1.8)}</div></div>
-    <div class="side"><div class="side-h">TURNHUDDLE: CHAT</div><div class="chat"><iframe src="${panelFile}"></iframe></div></div>
+    <div class="side"><div class="side-h">TURNHUDDLE: THREADS<span style="margin-left:auto;display:flex;gap:10px">${svg('<path d="M12 5v14M5 12h14"/>', 15)}${svg('<path d="M8 5v14l11-7z"/>', 15)}${svg('<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11h14V8M10 12h4"/>', 15)}</span></div>${threadRows(tree || THREADS_DEFAULT, v)}</div>
     <div class="main">${editor(t)}</div>
+    <div class="side2"><div class="stabs"><span>Chat</span><b>Turnhuddle</b></div><div class="chat"><iframe src="${panelFile}"></iframe></div></div>
   </div>
   ${overlay || ''}
   <div class="status"><span>⎇ main</span><span>✓ 0 ⚠ 0</span><span style="margin-left:auto" class="th">${svg(ICON.turnhuddle, 13, 2.2)} Turnhuddle</span><span>TypeScript</span></div>
   </div></body></html>`;
 }
 
+/** The Threads list (left), as VS Code renders a tree view: an icon per state, the title, then state and age. */
+const THREAD_ICON = { running: ['<path d="M12 3a9 9 0 1 0 9 9"/>', ''], agreed: ['<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>', 'ok'], bookmark: ['<path d="M6 3h12v18l-6-4-6 4z"/>', ''], failed: ['<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/>', 'bad'], done: ['<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/>', ''] };
+const THREADS_DEFAULT = [
+  { group: 'Bookmarked' }, { icon: 'bookmark', title: 'Choose a cache key scheme for prices', desc: 'Agreed · 1h' },
+  { group: 'Recent' }, { icon: 'agreed', title: 'Add rate limiting to the POST /login endpoint', desc: 'Agreed · 2m', open: true },
+  { icon: 'running', title: 'Is the retry logic safe to ship?', desc: 'now' }, { icon: 'failed', title: 'Review the invoice PDF generator', desc: 'Failed · 1d' }, { icon: 'done', title: 'Name the user-id list variable', desc: '2d' }
+];
+function threadRows(rows) {
+  return rows.map(r => r.group ? `<div class="grp">${svg('<path d="m6 9 6 6 6-6"/>', 12, 2.4)}${r.group.toUpperCase()}</div>` : `<div class="row${r.open ? ' open' : ''}"><span class="${THREAD_ICON[r.icon][1]}">${svg(THREAD_ICON[r.icon][0], 15)}</span><span class="t">${r.title}</span><span class="d">${r.desc}</span></div>`).join('');
+}
 // ---------- scenes ----------
 const TREE = [
   { status: 'running', title: 'Pick up where we left off: is the retry…', desc: 'running · from Claude · just now', open: true },

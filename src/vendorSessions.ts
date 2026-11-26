@@ -108,6 +108,8 @@ async function newestFiles(dir: string, pattern: RegExp, recursive: boolean): Pr
   await walk(dir, 0);
   return found.sort((a, b) => b.mtime - a.mtime);
 }
+/** Sessions Turnhuddle itself started for a seat (their first prompt is Turnhuddle's turn prompt). Listed nowhere: they belong to a thread already. */
+export function isTurnhuddleSession(title: string): boolean { return /^You are .{1,160}? in Turnhuddle conversation [\w-]+/.test(title); }
 /** Claude Code sessions: `~/.claude/projects/<encoded cwd>/<session>.jsonl`. With `cwd`, only that folder's project; without, every project. */
 export async function listClaudeSessions(options: ListOptions): Promise<VendorSession[]> {
   const root = join(options.home, '.claude', 'projects');
@@ -116,10 +118,12 @@ export async function listClaudeSessions(options: ListOptions): Promise<VendorSe
   for (const dir of dirs) files.push(...await newestFiles(dir, /^[0-9a-f-]{36}\.jsonl$/, false));
   files.sort((a, b) => b.mtime - a.mtime);
   const sessions: VendorSession[] = [];
-  for (const { file, mtime } of files.slice(0, options.limit ?? 40)) {
+  for (const { file, mtime } of files) {
+    if (sessions.length >= (options.limit ?? 40)) break;
     try {
       const { head, tail, bytes } = await readHeadAndTail(file);
       const summary = summariseClaudeTranscript(head, tail);
+      if (isTurnhuddleSession(summary.title)) continue;
       const id = summary.id ?? file.slice(file.lastIndexOf('/') + 1, -'.jsonl'.length);
       sessions.push({ provider: 'claude', id, title: summary.title, cwd: summary.cwd, updatedAt: new Date(mtime).toISOString(), file, bytes });
     } catch { /* unreadable */ }
@@ -138,7 +142,7 @@ export async function listCodexSessions(options: ListOptions): Promise<VendorSes
     try {
       const { head, bytes } = await readHeadAndTail(file);
       const summary = summariseCodexRollout(head);
-      if (!summary.id) continue;
+      if (!summary.id || isTurnhuddleSession(summary.title)) continue;
       if (folders && summary.cwd && !folders.has(summary.cwd)) continue;
       sessions.push({ provider: 'codex', id: summary.id, title: summary.title, cwd: summary.cwd, updatedAt: new Date(mtime).toISOString(), file, bytes });
     } catch { /* unreadable */ }

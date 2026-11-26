@@ -30,6 +30,20 @@ exports.run = async () => {
   try { await steps(report, save); } catch (error) { report.error = String(error && error.stack || error); save(); console.error('[turnhuddle-vscode] FAILED:', report.error); throw error; }
 };
 const steps = async (report, save) => {
+  /** Optional screenshots of this test window only (never the whole screen): TURNHUDDLE_SHOTS=<dir> and TURNHUDDLE_WINID=<tool that lists a pid's window ids>. */
+  const shot = async name => {
+    const dir = process.env.TURNHUDDLE_SHOTS, tool = process.env.TURNHUDDLE_WINID;
+    if (!dir || !tool) return;
+    await new Promise(r => setTimeout(r, 2500));
+    try {
+      const { execFileSync } = require('node:child_process');
+      for (const pid of [process.ppid, process.pid]) {
+        const id = String(execFileSync(tool, [String(pid)])).trim().split('\n')[0].split(' ')[0];
+        if (id) { execFileSync('screencapture', ['-x', '-o', `-l${id}`, require('node:path').join(dir, `${name}.png`)]); log(`screenshot ${name} (window ${id} of pid ${pid})`); return; }
+      }
+      log(`screenshot ${name}: no window found for pids ${process.ppid}, ${process.pid}`);
+    } catch (error) { log(`screenshot ${name} failed: ${error}`); }
+  };
   const config = vscode.workspace.getConfiguration('turnhuddle');
   const claudePath = config.get('claudePath'); const codexPath = config.get('codexPath');
   cliPaths = [claudePath, codexPath];
@@ -49,9 +63,13 @@ const steps = async (report, save) => {
   assert.deepEqual(await sameState(), { status: 'idle', messages: [] });
   // 0. Sidebar view resolves when focused (the webview document itself cannot be read from the extension host)
   log('step 0: sidebar view');
-  await vscode.commands.executeCommand('turnhuddle.conversation.focus');
+  await vscode.commands.executeCommand('turnhuddle.focus');
+  // VS Code 1.106+ hosts the chat in the secondary side bar (like Claude Code); the Threads list is its own activity-bar view.
+  await vscode.commands.executeCommand('turnhuddle.threads.focus');
   await waitFor(() => api.isViewResolved(), 15000, 'sidebar webview to resolve');
   report.steps.view = { resolved: api.isViewResolved(), visible: api.isViewVisible(), logos: api.logoSources() };
+  await shot('layout-empty');
+  assert.equal(api.chatViewId(), Number(vscode.version.split('.')[1]) >= 106 || Number(vscode.version.split('.')[0]) > 1 ? 'turnhuddle.chatSecondary' : 'turnhuddle.chat', 'chat in the secondary side bar on VS Code 1.106+');
   // The Claude Code and Codex extensions are installed on this machine, so their own logos are shown; none are bundled.
   const logos = api.logoSources();
   assert.match(logos.claude || '', /anthropic\.claude-code-.*claude-logo\.(svg|png)$/, `Claude logo from the Claude Code extension: ${JSON.stringify(logos)}`);
@@ -155,6 +173,7 @@ const steps = async (report, save) => {
   assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
   assert.equal(snapshot(folder), before, 'workspace files changed during the conversation');
   // Sidebar state after the conversation, and the live sequence of updates it rendered on the way
+  await vscode.commands.executeCommand('turnhuddle.threads.focus'); await vscode.commands.executeCommand('turnhuddle.focus'); await shot('layout-conversation');
   assert.equal(finalState.status, 'completed'); assert.equal(finalState.id, result.id); assert.equal(finalState.task, TASK); assert.equal(finalState.error, undefined);
   assert.deepEqual(finalState.messages.map(m => ({ role: m.role, content: m.content, agent: m.agent })), result.messages.map(m => ({ role: m.role, content: m.content, agent: m.agent })), 'sidebar messages match the command result');
   assert.deepEqual(result.messages.slice(1).map(m => m.agent), [{ provider: 'claude' }, { provider: 'codex' }, { provider: 'claude' }], 'default seats: Claude drafts, Codex reviews');
@@ -185,6 +204,9 @@ const steps = async (report, save) => {
   assert.equal(reply.status, 'completed', reply.error);
   assert.equal(reply.id, result.id, 'reply continues the same conversation');
   assert.deepEqual(reply.messages.map(m => m.role), ['user', 'drafter', 'reviewer', 'drafter'], 'one new round returned');
+  // The engine: each seat kept its own CLI session from round 1, and round 2 resumed those same sessions instead of replaying.
+  assert.ok(finalState.agentSessions && finalState.agentSessions.drafter && finalState.agentSessions.drafter.provider === 'claude' && finalState.agentSessions.reviewer.provider === 'codex', `seat sessions recorded: ${JSON.stringify(finalState.agentSessions)}`);
+  assert.deepEqual(replyState.agentSessions, finalState.agentSessions, 'round 2 resumed the same Claude session and Codex thread');
   assert.equal(reply.messages[0].content, FOLLOW_UP);
   assert.equal(replyState.status, 'completed'); assert.equal(replyState.id, result.id); assert.equal(replyState.task, TASK); assert.equal(replyState.partial, undefined, 'no partial text left after completion');
   assert.deepEqual(replyState.messages.map(m => m.role), ['user', 'drafter', 'reviewer', 'drafter', 'user', 'drafter', 'reviewer', 'drafter'], 'panel shows both rounds');

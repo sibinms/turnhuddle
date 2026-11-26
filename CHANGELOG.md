@@ -5,6 +5,9 @@ All notable changes to Turnhuddle are listed here. Versions follow [Semantic Ver
 ## 0.3.0 — 2026-11-26
 
 ### Added
+- The chat moved to VS Code's **secondary side bar** (1.106+) as a single "Turnhuddle" panel, like Claude Code; older VS Code keeps an activity-bar container. New view ids, so 0.2's cached "Conversations" section disappears.
+- **Threads** list in the activity bar: bookmarked, recent (running first) and, on demand, archived, with Bookmark/Archive/Rename on each row. Editor-title button and **Open Chat** command.
+- Each seat keeps its own CLI session for the whole thread (`claude --resume`, `codex exec resume`); later turns send only new messages (`turnhuddle.keepAgentSessions`).
 - Two seats, **drafter** and **reviewer**, each any provider and model. Click a seat under the message box for a picker that lists the models found on this machine (Codex's model cache, Claude's aliases and recently used models, Gemini's), accepts any other model id, and swaps the seats. Saved per conversation and as `turnhuddle.drafter` / `turnhuddle.reviewer` for new ones.
 - **Gemini CLI** as a provider, in preview (`turnhuddle.geminiPath`).
 - Commands: Choose the Drafter's / Reviewer's Agent and Model, Swap Drafter and Reviewer.

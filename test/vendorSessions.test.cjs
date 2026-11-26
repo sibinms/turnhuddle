@@ -114,3 +114,10 @@ test('any wrapped tag block is treated as injected context', () => {
   assert.equal(cleanPrompt('<recommended_plugins>only context</recommended_plugins>'), '');
   assert.equal(cleanPrompt('Compare a < b and b > c'), 'Compare a < b and b > c', 'plain angle brackets stay');
 });
+test('sessions Turnhuddle started for a seat are not offered to continue from', () => {
+  const { isTurnhuddleSession } = require('../dist/vendorSessions');
+  assert.equal(isTurnhuddleSession('You are Claude · Opus, the drafter, in Turnhuddle conversation 4652f392-1c6f-4669-8ea1-c3e6a80175ff, working with Codex, the reviewer. Analyse the task'), true);
+  assert.equal(isTurnhuddleSession('You are the reviewer, in Turnhuddle conversation x1, working with the drafter.'), true);
+  assert.equal(isTurnhuddleSession('You are a helpful reviewer for my repo'), false);
+  assert.equal(isTurnhuddleSession('Fix the Turnhuddle conversation list'), false);
+});

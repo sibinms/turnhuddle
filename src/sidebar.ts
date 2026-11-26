@@ -8,7 +8,9 @@ import { defaultExtensionRoots, newestExtensionDir, vendorLogoFiles } from './cl
 const VENDOR_EXTENSIONS = { claude: 'anthropic.claude-code', codex: 'openai.chatgpt' } as const;
 /** What the panel needs from the session manager: the selected conversation's state and change notifications. */
 export interface StateSource { get(): ConversationState; subscribe(listener: (state: ConversationState) => void): () => void }
-export const VIEW_ID = 'turnhuddle.conversation';
+/** The chat lives in the secondary side bar where VS Code has one (1.106+), like Claude Code's; otherwise in its own activity-bar container. */
+export const CHAT_VIEW_SECONDARY = 'turnhuddle.chatSecondary';
+export const CHAT_VIEW_PRIMARY = 'turnhuddle.chat';
 export const PUSH_INTERVAL_MS = 60;
 /** globalState key: the version whose "What's new" card the user dismissed. */
 const WHATS_NEW_SEEN = 'turnhuddle.whatsNewSeen';
@@ -39,7 +41,7 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
   private logos: Logos = {};
   private configListener: vscode.Disposable | undefined;
   private context: vscode.ExtensionContext | undefined;
-  constructor(private readonly store: StateSource, private readonly options: ViewOptions) {}
+  constructor(private readonly store: StateSource, private readonly options: ViewOptions, readonly viewId: string = CHAT_VIEW_SECONDARY) {}
   get resolved(): boolean { return this.view !== undefined; }
   get visible(): boolean { return this.view?.visible ?? false; }
   /** Logo URIs in use by the current webview, for diagnostics and tests. */
@@ -47,7 +49,7 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
   register(context: vscode.ExtensionContext): void {
     this.context = context;
     this.extensionUri = context.extensionUri;
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider(VIEW_ID, this));
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider(this.viewId, this, { webviewOptions: { retainContextWhenHidden: false } }));
     context.subscriptions.push({ dispose: this.store.subscribe(() => this.push()) });
   }
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -96,7 +98,7 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
   /** Brings the view into the sidebar without taking focus from the editor. */
   async reveal(): Promise<void> {
     if (this.view) this.view.show(true);
-    else await vscode.commands.executeCommand(`${VIEW_ID}.focus`);
+    else await vscode.commands.executeCommand(`${this.viewId}.focus`);
   }
   private pending: NodeJS.Timeout | undefined;
   /** Re-renders at most every PUSH_INTERVAL_MS so a burst of streamed deltas does not flood the webview. */

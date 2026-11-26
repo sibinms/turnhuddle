@@ -35,6 +35,10 @@ It drives the official command-line tools you already have, under your own accou
 
 ## Features
 
+### Laid out like Claude Code
+
+The chat is one **Turnhuddle** panel in VS Code's right-hand sidebar, next to VS Code's own Chat. **Threads** in the activity bar lists every conversation with its state and age. Each agent keeps its own Claude Code or Codex session for the whole thread, so long threads don't get slower.
+
 ### Any agent, any model, in either seat
 
 <picture>
@@ -77,7 +81,7 @@ Conversations are saved on your machine, each with a name: **Untitled** until yo
 1. Install the CLIs you want to seat and sign in to each once in a terminal: the [Claude Code CLI](https://code.claude.com/docs/en/cli-reference), the [Codex CLI](https://developers.openai.com/codex/cli) and, optionally, the [Gemini CLI](https://github.com/google-gemini/gemini-cli). Claude drafts and Codex reviews until you choose otherwise.
 2. Install **Turnhuddle** from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=Turnhuddle.turnhuddle), or download the VSIX from [Releases](https://github.com/sibinms/turnhuddle/releases) and run **Extensions: Install from VSIX…**.
 3. Run **Turnhuddle: Check CLI Installations** to see which CLIs are found.
-4. Open the Turnhuddle view in the Activity Bar, type in **Ask Claude and Codex…** and press **Enter**. Click a name under the box to change who drafts or reviews.
+4. Open the Turnhuddle chat (the Turnhuddle tab in the right-hand sidebar, or the Turnhuddle button in the editor title bar), type in **Ask Claude and Codex…** and press **Enter**. Click a name under the box to change who drafts or reviews.
 
 Turnhuddle finds the CLIs by itself: on your PATH, in common install folders, or bundled with the Claude Code and Codex VS Code extensions. If you keep them somewhere unusual, point `turnhuddle.claudePath`, `turnhuddle.codexPath` or `turnhuddle.geminiPath` at them.
 
@@ -91,6 +95,7 @@ Turnhuddle finds the CLIs by itself: on your PATH, in common install folders, or
 | `turnhuddle.codexReasoningEffort` | `medium` | Codex's reasoning effort for Turnhuddle turns only. `inherit` uses your Codex config. |
 | `turnhuddle.claudeEffort` | `inherit` | Passes `--effort` to Claude: `low` to `max`. |
 | `turnhuddle.claudePath`, `turnhuddle.codexPath`, `turnhuddle.geminiPath` | `claude`, `codex`, `gemini` | Leave as is to find the CLIs automatically, or set a full path. |
+| `turnhuddle.keepAgentSessions` | `true` | Each seat keeps its CLI session for the thread and receives only new messages. Off: replay the conversation every turn. |
 | `turnhuddle.timeoutSeconds` | `180` | Per-turn time limit. |
 | `turnhuddle.checkForUpdates` | `true` | Daily check for a newer release on GitHub. |
 | `turnhuddle.vendorLogos` | `true` | Show the Claude and Codex logos from their installed VS Code extensions. |
@@ -119,7 +124,6 @@ Details: [privacy](https://sibinms.github.io/turnhuddle/privacy.html).
 
 ## Limits
 
-- Every turn replays the conversation to the CLI, so long conversations cost more per round.
 - Tested on macOS. Windows and Linux should work but aren't verified.
 - Gemini support is a **preview**: it's built against the Gemini CLI's documented `stream-json` output and tested with recorded output, not yet with the real CLI. Continuing a Gemini CLI session isn't supported yet.
 - Turnhuddle doesn't bundle the Claude or OpenAI logos, which belong to Anthropic and OpenAI. When the Claude Code and Codex VS Code extensions are installed, it shows the logos those extensions ship, from where they're installed on your machine; otherwise it shows initials. Turn this off with `turnhuddle.vendorLogos`.
