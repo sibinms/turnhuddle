@@ -61,7 +61,7 @@ h1 { font-size: clamp(40px, 6.4vw, 72px); line-height: 1.04; letter-spacing: -0.
 .logos { display: flex; justify-content: center; gap: 12px 28px; flex-wrap: wrap; margin: 36px 0 0; color: var(--muted); font-size: 15px; }
 .logos span { display: inline-flex; align-items: center; gap: 8px; }
 .mk { width: 22px; height: 22px; border-radius: 6px; display: inline-grid; place-items: center; color: #fff; font: 700 10px/1 -apple-system, sans-serif; font-style: normal; }
-.mk.c { background: var(--claude); } .mk.x { background: var(--codex); } .mk.v { background: #0078d4; }
+.mk.c { background: var(--claude); } .mk.x { background: var(--codex); } .mk.v { background: #0078d4; } .mk.g { background: #4f7cf7; }
 
 /* sections */
 section { padding: 92px 0; }

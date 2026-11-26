@@ -2,7 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import * as vscode from 'vscode';
 import { homedir } from 'node:os';
-import { ConversationState, Logos, renderConversation, renderMeta, renderPage } from './conversationView';
+import { authorName, ConversationState, Logos, renderConversation, renderMeta, renderPage, Seats } from './conversationView';
+import { agentName, provider, seatNames } from './providers';
 import { defaultExtensionRoots, newestExtensionDir, vendorLogoFiles } from './cliLocator';
 const VENDOR_EXTENSIONS = { claude: 'anthropic.claude-code', codex: 'openai.chatgpt' } as const;
 /** What the panel needs from the session manager: the selected conversation's state and change notifications. */
@@ -11,12 +12,24 @@ export const VIEW_ID = 'turnhuddle.conversation';
 export const PUSH_INTERVAL_MS = 60;
 /** globalState key: the version whose "What's new" card the user dismissed. */
 const WHATS_NEW_SEEN = 'turnhuddle.whatsNewSeen';
-/** Short description of the effort settings for the composer toolbar. */
-export function effortLabel(): string {
+/** Short description of the effort settings that apply to the seated agents, for the composer toolbar. Empty when none is set. */
+export function effortLabel(seats: Seats): string {
   const config = vscode.workspace.getConfiguration('turnhuddle');
-  const codex = config.get<string>('codexReasoningEffort', 'medium'); const claude = config.get<string>('claudeEffort', 'inherit');
-  return `Codex ${codex}${claude !== 'inherit' ? ` · Claude ${claude}` : ''}`;
+  const parts: string[] = [];
+  for (const id of new Set([seats.drafter.provider, seats.reviewer.provider])) {
+    const def = provider(id);
+    if (!def?.effortSetting) continue;
+    const value = config.get<string>(def.effortSetting, id === 'codex' ? 'medium' : 'inherit');
+    if (value !== 'inherit') parts.push(`${def.name} ${value}`);
+  }
+  return parts.join(' · ');
 }
+/** Composer placeholder for a new conversation: "Ask Claude and Codex…", or "Ask Claude…" when one provider takes both seats. */
+export function askPlaceholder(seats: Seats): string {
+  const names = [...new Set([seats.drafter, seats.reviewer].map(s => provider(s.provider)?.name ?? s.provider))];
+  return `Ask ${names.join(' and ')}…`;
+}
+export interface ViewOptions { /** Who sits in the seats for the given state (the open conversation's, or the defaults for a new one). */ seats(state: ConversationState): Seats }
 /** Vendor logos are not bundled. Files named `claude.svg` / `codex.svg` placed here take precedence over the ones read from the vendor extensions. */
 export const LOGO_DIR = ['media', 'logos'] as const;
 /** Hosts the conversation webview in the Turnhuddle activity-bar container and mirrors the store into it. */
@@ -26,7 +39,7 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
   private logos: Logos = {};
   private configListener: vscode.Disposable | undefined;
   private context: vscode.ExtensionContext | undefined;
-  constructor(private readonly store: StateSource) {}
+  constructor(private readonly store: StateSource, private readonly options: ViewOptions) {}
   get resolved(): boolean { return this.view !== undefined; }
   get visible(): boolean { return this.view?.visible ?? false; }
   /** Logo URIs in use by the current webview, for diagnostics and tests. */
@@ -61,13 +74,14 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
       this.logos[`${agent}Dark`] = view.webview.asWebviewUri(vscode.Uri.file(f.dark)).toString();
     }
     view.webview.html = renderPage(randomBytes(16).toString('hex'), view.webview.cspSource);
-    view.webview.onDidReceiveMessage((message: { command?: string; text?: unknown; index?: unknown }) => {
+    view.webview.onDidReceiveMessage((message: { command?: string; text?: unknown; index?: unknown; seat?: unknown }) => {
       if (message?.command === 'ready') this.pushNow();
       else if (message?.command === 'send') void vscode.commands.executeCommand('turnhuddle.reply', { message: typeof message.text === 'string' ? message.text : undefined, source: 'sidebar' });
       else if (message?.command === 'cancel') void vscode.commands.executeCommand('turnhuddle.cancel');
       else if (message?.command === 'new') void vscode.commands.executeCommand('turnhuddle.clear');
       else if (message?.command === 'history') void vscode.commands.executeCommand('turnhuddle.history');
       else if (message?.command === 'bookmark') void vscode.commands.executeCommand('turnhuddle.toggleBookmark');
+      else if (message?.command === 'pickAgent') void vscode.commands.executeCommand('turnhuddle.pickAgent', message.seat === 'reviewer' ? 'reviewer' : 'drafter');
       else if (message?.command === 'rename') void vscode.commands.executeCommand('turnhuddle.rename');
       else if (message?.command === 'mode') { const config = vscode.workspace.getConfiguration('turnhuddle'); void config.update('roundMode', config.get<string>('roundMode', 'agreement') === 'fixed' ? 'agreement' : 'fixed', vscode.ConfigurationTarget.Global); }
       else if (message?.command === 'dismissWhatsNew') void this.context?.globalState.update(WHATS_NEW_SEEN, this.version());
@@ -96,7 +110,11 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
     const config = vscode.workspace.getConfiguration('turnhuddle');
     const version = this.version();
     const whatsNew = version && this.context?.globalState.get<string>(WHATS_NEW_SEEN) !== version ? version : undefined;
-    void this.view.webview.postMessage({ type: 'render', status: state.status, meta: renderMeta(state), effort: effortLabel(), mode: config.get<string>('roundMode', 'agreement'), maxTurns: config.get<string>('roundMode', 'agreement') === 'agreement' ? config.get<number>('maxTurnsPerRound', 10) : 3, html: renderConversation(state, this.logos, { whatsNew }) });
+    const seats = this.options.seats(state);
+    const names = seatNames(seats);
+    const effortOf = (id: string) => { const key = provider(id)?.effortSetting; const value = key ? config.get<string>(key, id === 'codex' ? 'medium' : 'inherit') : undefined; return value && value !== 'inherit' ? ` Effort: ${value}.` : ''; };
+    const seat = (s: 'drafter' | 'reviewer') => ({ name: names[s], provider: provider(seats[s].provider)?.id ?? 'other', title: `${s === 'drafter' ? 'Drafter: proposes and revises' : 'Reviewer: critiques the drafter'}. ${agentName(seats[s])}${seats[s].model ? ` (${seats[s].model})` : ''}.${effortOf(seats[s].provider)}${state.status === 'running' ? '' : ' Click to choose the agent and model.'}` });
+    void this.view.webview.postMessage({ type: 'render', status: state.status, meta: renderMeta(state), seats: { drafter: seat('drafter'), reviewer: seat('reviewer') }, ask: askPlaceholder(seats), effort: effortLabel(seats), mode: config.get<string>('roundMode', 'agreement'), maxTurns: config.get<string>('roundMode', 'agreement') === 'agreement' ? config.get<number>('maxTurnsPerRound', 10) : 3, html: renderConversation(state, this.logos, { whatsNew, seats }) });
   }
   private version(): string | undefined {
     const v = this.context?.extension.packageJSON?.version;
@@ -107,6 +125,7 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
     const message = this.store.get().messages[index];
     if (!message) return;
     await vscode.env.clipboard.writeText(message.content);
-    vscode.window.setStatusBarMessage(`Turnhuddle: copied ${message.role === 'user' ? 'your message' : `${message.role}'s message`}`, 2500);
+    const state = this.store.get();
+    vscode.window.setStatusBarMessage(`Turnhuddle: copied ${message.role === 'user' ? 'your message' : `${authorName(state, { role: message.role, agent: message.agent })}'s message`}`, 2500);
   }
 }

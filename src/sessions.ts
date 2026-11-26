@@ -1,27 +1,49 @@
 // Conversation history and multi-session state. No VS Code imports: unit-tested with Node alone.
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { RoundOutcome } from './bridge';
-import { AgentSessions, autoTitle, ConversationState, conversationTitle, initialState, Origin, startConversation } from './conversationView';
+import type { AgentSpec, RoundOutcome, Seat } from './bridge';
+import { AgentSessions, autoTitle, ConversationState, conversationTitle, initialState, Origin, Seats, startConversation } from './conversationView';
+import { isProviderId } from './providers';
 /** A conversation as kept in memory and on disk. Streamed partial text is never stored. */
 export interface StoredConversation extends ConversationState { id: string; task: string; cwd: string; createdAt: string; updatedAt: string; archived: boolean }
 export interface SessionSummary { id: string; title: string; status: ConversationState['status']; createdAt: string; updatedAt: string; archived: boolean; bookmarked: boolean; messages: number; rounds: number; cwd: string; file?: string }
-const ROLES = new Set(['user', 'claude', 'codex']);
+/** Conversations saved before 0.3 used provider names as roles: Claude always drafted and Codex always reviewed. */
+const LEGACY_ROLES: Record<string, { role: Seat; provider: string }> = { claude: { role: 'drafter', provider: 'claude' }, codex: { role: 'reviewer', provider: 'codex' } };
+const SEAT_ROLES = new Set(['user', 'drafter', 'reviewer']);
+function parseAgent(value: unknown): AgentSpec | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const a = value as Record<string, unknown>;
+  if (typeof a.provider !== 'string' || !a.provider) return undefined;
+  return { provider: a.provider, ...(typeof a.model === 'string' && a.model ? { model: a.model } : {}), ...(typeof a.label === 'string' && a.label ? { label: a.label } : {}) };
+}
 const STATUSES = new Set(['idle', 'running', 'completed', 'cancelled', 'failed']);
 /** Validates a parsed JSON file. A conversation that was running when the window closed is recorded as failed. */
 export function parseStored(value: unknown): StoredConversation | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const v = value as Record<string, unknown>;
   if (typeof v.id !== 'string' || !v.id || typeof v.task !== 'string' || !Array.isArray(v.messages)) return undefined;
-  const messages = v.messages.filter((m): m is { role: 'user' | 'claude' | 'codex'; content: string; receivedAt: string; verdict?: unknown } => !!m && typeof m === 'object' && ROLES.has((m as { role?: unknown }).role as string) && typeof (m as { content?: unknown }).content === 'string' && typeof (m as { receivedAt?: unknown }).receivedAt === 'string')
-    .map(m => ({ role: m.role, content: m.content, receivedAt: m.receivedAt, ...(m.verdict === 'agree' || m.verdict === 'continue' ? { verdict: m.verdict as 'agree' | 'continue' } : {}) }));
+  type Raw = { role: string; content: string; receivedAt: string; verdict?: unknown; agent?: unknown };
+  const messages = v.messages.filter((m): m is Raw => !!m && typeof m === 'object' && typeof (m as Raw).role === 'string' && (SEAT_ROLES.has((m as Raw).role) || (m as Raw).role in LEGACY_ROLES) && typeof (m as Raw).content === 'string' && typeof (m as Raw).receivedAt === 'string')
+    .map(m => {
+      const legacy = LEGACY_ROLES[m.role];
+      const agent = legacy ? { provider: legacy.provider } : parseAgent(m.agent);
+      return { role: (legacy ? legacy.role : m.role) as 'user' | Seat, content: m.content, receivedAt: m.receivedAt, ...(m.verdict === 'agree' || m.verdict === 'continue' ? { verdict: m.verdict as 'agree' | 'continue' } : {}), ...(agent && m.role !== 'user' ? { agent } : {}) };
+    });
   const oc = v.outcome as Record<string, unknown> | undefined;
   const outcome: RoundOutcome | undefined = oc && (oc.kind === 'agreed' || oc.kind === 'limit' || oc.kind === 'fixed') && typeof oc.turns === 'number' ? { kind: oc.kind as RoundOutcome['kind'], turns: oc.turns } : undefined;
   const text = (key: string) => typeof v[key] === 'string' ? v[key] as string : undefined;
   const o = v.origin as Record<string, unknown> | undefined;
-  const origin: Origin | undefined = o && (o.provider === 'claude' || o.provider === 'codex') && typeof o.sessionId === 'string' ? { provider: o.provider, sessionId: o.sessionId, title: typeof o.title === 'string' ? o.title : '' } : undefined;
+  const origin: Origin | undefined = o && isProviderId(o.provider) && typeof o.sessionId === 'string' ? { provider: o.provider, sessionId: o.sessionId, title: typeof o.title === 'string' ? o.title : '' } : undefined;
   const a = v.agentSessions as Record<string, unknown> | undefined;
-  const agentSessions: AgentSessions | undefined = a ? Object.fromEntries((['claude', 'codex'] as const).filter(k => typeof a[k] === 'string').map(k => [k, a[k] as string])) : undefined;
+  const agentSessions: AgentSessions = {};
+  for (const [key, value] of Object.entries(a ?? {})) {
+    const legacy = LEGACY_ROLES[key];
+    if (legacy && typeof value === 'string') agentSessions[legacy.role] = { provider: legacy.provider, id: value };
+    else if ((key === 'drafter' || key === 'reviewer') && value && typeof value === 'object' && typeof (value as { provider?: unknown }).provider === 'string' && typeof (value as { id?: unknown }).id === 'string') agentSessions[key] = { provider: (value as { provider: string }).provider, id: (value as { id: string }).id };
+  }
+  const st = v.seats as Record<string, unknown> | undefined;
+  const drafter = parseAgent(st?.drafter), reviewer = parseAgent(st?.reviewer);
+  const seats: Seats | undefined = drafter && reviewer ? { drafter, reviewer } : undefined;
   const status = STATUSES.has(v.status as string) ? v.status as ConversationState['status'] : 'failed';
   const interrupted = status === 'running' || status === 'idle';
   return {
@@ -29,7 +51,7 @@ export function parseStored(value: unknown): StoredConversation | undefined {
     archived: v.archived === true, ...(v.bookmarked === true ? { bookmarked: true } : {}), ...(typeof v.title === 'string' && v.title.trim() ? { title: v.title.trim().slice(0, 200) } : {}), status: interrupted ? 'failed' : status, messages,
     startedAt: text('startedAt'), roundStartedAt: text('roundStartedAt'), finishedAt: text('finishedAt'),
     error: interrupted ? 'The window closed while this conversation was running.' : text('error'),
-    ...(origin ? { origin } : {}), ...(agentSessions && Object.keys(agentSessions).length ? { agentSessions } : {}), ...(outcome && !interrupted ? { outcome } : {})
+    ...(origin ? { origin } : {}), ...(Object.keys(agentSessions).length ? { agentSessions } : {}), ...(seats ? { seats } : {}), ...(outcome && !interrupted ? { outcome } : {})
   };
 }
 /** Strips in-memory-only fields before writing. */
@@ -66,10 +88,12 @@ export function summarize(conversation: StoredConversation, file?: string): Sess
 }
 export type ListListener = () => void;
 /** All conversations of this window plus the one shown in the panel. Persists through a HistoryStore when one is given. */
-/** Records the CLI session an agent used, so the next turn resumes it. */
-export function withAgentSession(state: ConversationState, role: 'claude' | 'codex', sessionId: string): ConversationState {
-  return { ...state, agentSessions: { ...state.agentSessions, [role]: sessionId } };
+/** Records the CLI session the agent in `seat` used, so its next turn resumes it. */
+export function withAgentSession(state: ConversationState, seat: Seat, provider: string, sessionId: string): ConversationState {
+  return { ...state, agentSessions: { ...state.agentSessions, [seat]: { provider, id: sessionId } } };
 }
+/** Puts agents in the seats for the next round. */
+export function withSeats(state: ConversationState, seats: Seats): ConversationState { return { ...state, seats }; }
 export class SessionManager {
   private readonly sessions = new Map<string, StoredConversation>();
   private selected: string | undefined;
@@ -99,9 +123,9 @@ export class SessionManager {
     this.notifyState(); this.notifyList();
     return true;
   }
-  /** Starts a new conversation and selects it; `origin` records the CLI session it continues from. */
-  create(id: string, task: string, cwd: string, at: Date = new Date(), origin?: Origin): StoredConversation {
-    const conversation: StoredConversation = { ...startConversation(task, at), task, title: autoTitle(task), id, cwd, createdAt: at.toISOString(), updatedAt: at.toISOString(), archived: false, ...(origin ? { origin, agentSessions: { [origin.provider]: origin.sessionId } } : {}) };
+  /** Starts a new conversation and selects it; `origin` records the CLI session it continues from, which the drafter picks up. */
+  create(id: string, task: string, cwd: string, at: Date = new Date(), origin?: Origin, seats?: Seats): StoredConversation {
+    const conversation: StoredConversation = { ...startConversation(task, at), task, title: autoTitle(task), id, cwd, createdAt: at.toISOString(), updatedAt: at.toISOString(), archived: false, ...(seats ? { seats } : {}), ...(origin ? { origin, agentSessions: { drafter: { provider: origin.provider, id: origin.sessionId } } } : {}) };
     this.sessions.set(id, conversation);
     this.selected = id;
     this.persist(id); this.notifyState(); this.notifyList();
@@ -125,6 +149,14 @@ export class SessionManager {
     const name = title.replace(/\s+/g, ' ').trim().slice(0, 200);
     this.sessions.set(id, { ...current, title: name || autoTitle(current.task) });
     this.persist(id, true); if (id === this.selected) this.notifyState(); this.notifyList();
+    return true;
+  }
+  /** Changes who sits in the seats for the conversation's next round. Doesn't change its activity time. */
+  setSeats(id: string, seats: Seats): boolean {
+    const current = this.sessions.get(id);
+    if (!current) return false;
+    this.sessions.set(id, { ...current, seats });
+    this.persist(id, true); if (id === this.selected) this.notifyState();
     return true;
   }
   /** Marks a conversation as bookmarked (or not). Doesn't change its activity time. */

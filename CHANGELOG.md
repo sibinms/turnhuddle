@@ -2,6 +2,23 @@
 
 All notable changes to Turnhuddle are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 0.3.0 — 2026-11-26
+
+### Added
+- Two seats, **drafter** and **reviewer**, each any provider and model. Click a seat under the message box for a picker that lists the models found on this machine (Codex's model cache, Claude's aliases and recently used models, Gemini's), accepts any other model id, and swaps the seats. Saved per conversation and as `turnhuddle.drafter` / `turnhuddle.reviewer` for new ones.
+- **Gemini CLI** as a provider, in preview (`turnhuddle.geminiPath`).
+- Commands: Choose the Drafter's / Reviewer's Agent and Model, Swap Drafter and Reviewer.
+- A provider registry (`src/providers.ts`): adding a CLI is one entry plus its model list.
+
+### Changed
+- Messages record the provider and model that wrote them; names show the model.
+- Prompts name each agent and seat and pass the conversation as `{from, content, verdict}`.
+- Composer: seats, mode and Send; the status shows only while running; effort moved to the seat tooltips and the picker.
+- "Start Claude ↔ Codex Conversation" is now "Start Conversation".
+
+### Migration
+- Conversations saved by 0.2.x load with Claude as drafter and Codex as reviewer.
+
 ## 0.2.7 — 2026-11-26
 
 ### Added

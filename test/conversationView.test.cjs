@@ -8,7 +8,7 @@ const ID = '4652f392-1c6f-4669-8ea1-c3e6a80175ff';
 const count = (html, re) => (html.match(re) || []).length;
 const fullRound = (task = 'Task') => {
   let state = startConversation(task, t0);
-  for (const [role, seconds] of [['user', 0], ['claude', 20], ['codex', 50], ['claude', 85]]) state = receiveMessage(state, ID, { role, content: role === 'user' ? task : `${role} says` }, at(seconds));
+  for (const [role, seconds] of [['user', 0], ['drafter', 20], ['reviewer', 50], ['drafter', 85]]) state = receiveMessage(state, ID, { role, content: role === 'user' ? task : `${role} says` }, at(seconds));
   return state;
 };
 test('publish events build the running state in order with timestamps', () => {
@@ -16,11 +16,11 @@ test('publish events build the running state in order with timestamps', () => {
   assert.equal(state.status, 'running'); assert.equal(state.task, 'Dedupe strings'); assert.equal(state.startedAt, t0.toISOString()); assert.equal(state.roundStartedAt, t0.toISOString());
   assert.deepEqual(state.messages, []); assert.equal(state.id, undefined);
   state = receiveMessage(state, ID, { role: 'user', content: 'Dedupe strings' }, at(0));
-  state = receiveMessage(state, ID, { role: 'claude', content: 'Proposal' }, at(30));
-  state = receiveMessage(state, ID, { role: 'codex', content: 'Critique' }, at(70));
+  state = receiveMessage(state, ID, { role: 'drafter', content: 'Proposal' }, at(30));
+  state = receiveMessage(state, ID, { role: 'reviewer', content: 'Critique' }, at(70));
   assert.equal(state.id, ID);
   assert.deepEqual(state.messages.map(m => [m.role, m.content, m.receivedAt]), [
-    ['user', 'Dedupe strings', at(0).toISOString()], ['claude', 'Proposal', at(30).toISOString()], ['codex', 'Critique', at(70).toISOString()]
+    ['user', 'Dedupe strings', at(0).toISOString()], ['drafter', 'Proposal', at(30).toISOString()], ['reviewer', 'Critique', at(70).toISOString()]
   ]);
   assert.equal(state.status, 'running');
 });
@@ -35,7 +35,7 @@ test('finishing records status, time and error without touching messages', () =>
   assert.equal(running.status, 'running', 'state is immutable');
 });
 test('a new start replaces the previous conversation entirely', () => {
-  const previous = finishConversation(receiveMessage(startConversation('Old', t0), ID, { role: 'claude', content: 'x' }, t0), 'failed', at(1), 'boom');
+  const previous = finishConversation(receiveMessage(startConversation('Old', t0), ID, { role: 'drafter', content: 'x' }, t0), 'failed', at(1), 'boom');
   const next = startConversation('New', at(100));
   assert.notEqual(next.id, previous.id); assert.equal(next.error, undefined); assert.equal(next.finishedAt, undefined);
   assert.deepEqual(next.messages, []); assert.equal(next.task, 'New');
@@ -47,13 +47,13 @@ test('resuming keeps id, task and messages, clears the outcome and starts a new 
   assert.equal(resumed.messages.length, 4); assert.equal(resumed.startedAt, t0.toISOString()); assert.equal(resumed.roundStartedAt, at(200).toISOString());
   assert.ok(!('finishedAt' in resumed)); assert.ok(!('error' in resumed));
   assert.equal(rounds(resumed), 1);
-  assert.equal(nextRole(resumed), 'claude', 'a resumed round waits for Claude first');
+  assert.equal(nextRole(resumed), 'drafter', 'a resumed round waits for Claude first');
   assert.equal(pendingSince(resumed), at(200).toISOString(), 'elapsed time counts from the round start, not the previous round');
   const replied = receiveMessage(resumed, ID, { role: 'user', content: 'Follow-up' }, at(201));
-  assert.equal(rounds(replied), 2); assert.equal(nextRole(replied), 'claude'); assert.equal(pendingSince(replied), at(201).toISOString());
-  const afterClaude = receiveMessage(replied, ID, { role: 'claude', content: 'x' }, at(230));
-  assert.equal(nextRole(afterClaude), 'codex');
-  assert.equal(nextRole(receiveMessage(afterClaude, ID, { role: 'codex', content: 'y' }, at(240))), 'claude');
+  assert.equal(rounds(replied), 2); assert.equal(nextRole(replied), 'drafter'); assert.equal(pendingSince(replied), at(201).toISOString());
+  const afterClaude = receiveMessage(replied, ID, { role: 'drafter', content: 'x' }, at(230));
+  assert.equal(nextRole(afterClaude), 'reviewer');
+  assert.equal(nextRole(receiveMessage(afterClaude, ID, { role: 'reviewer', content: 'y' }, at(240))), 'drafter');
   assert.equal(failed.status, 'failed', 'input state untouched');
 });
 test('store notifies subscribers and supports unsubscribe', () => {
@@ -76,8 +76,8 @@ test('title, stage and meta derive from the state', () => {
   let state = startConversation('Task', t0);
   assert.equal(currentStage(initialState()), -1); assert.equal(currentStage(state), 0);
   state = receiveMessage(state, ID, { role: 'user', content: 'Task' }, at(0)); assert.equal(currentStage(state), 0);
-  state = receiveMessage(state, ID, { role: 'claude', content: 'a' }, at(1)); assert.equal(currentStage(state), 1);
-  state = receiveMessage(state, ID, { role: 'codex', content: 'b' }, at(2)); assert.equal(currentStage(state), 0, 'after Codex it is Claude again');
+  state = receiveMessage(state, ID, { role: 'drafter', content: 'a' }, at(1)); assert.equal(currentStage(state), 1);
+  state = receiveMessage(state, ID, { role: 'reviewer', content: 'b' }, at(2)); assert.equal(currentStage(state), 0, 'after Codex it is Claude again');
   assert.equal(currentStage(finishConversation(state, 'completed', at(3))), -1);
   assert.deepEqual(renderMeta(state), { status: 'running', stage: 0, round: 1, turn: 3, roundStartedAt: t0.toISOString(), finishedAt: undefined, startedAt: t0.toISOString() });
   assert.deepEqual(renderMeta(initialState()), { status: 'idle', stage: -1, round: 0, turn: 0, roundStartedAt: undefined, finishedAt: undefined, startedAt: undefined });
@@ -86,7 +86,7 @@ test('idle render is a welcome screen under the title row, with Bookmark and New
   const html = renderConversation(initialState());
   assert.match(html, /^<header class="top status-idle"><span class="title" title="No conversation yet">Untitled<\/span><button class="icon bookmark" type="button" data-command="bookmark" title="Bookmark this conversation" aria-pressed="false" disabled>.*?<\/button><button class="icon" type="button" data-command="history" title="Conversation history">.*?<\/button><button class="icon" type="button" data-command="new" title="New conversation" disabled>/);
   assert.doesNotMatch(html, /class="state"/, 'no state dot before a conversation exists');
-  assert.match(html, /<section class="welcome"><div class="wordmark"><svg class="mark"[^]*?<span>Turnhuddle<\/span><\/div>/); assert.match(html, /<p class="tip" data-tips="[^"]+">Claude proposes, Codex reviews/);
+  assert.match(html, /<section class="welcome"><div class="wordmark"><svg class="mark"[^]*?<span>Turnhuddle<\/span><\/div>/); assert.match(html, /<p class="tip" data-tips="[^"]+">One agent drafts, the other reviews/);
   assert.match(html, /avatar-claude.*avatar-codex/s, 'both marks shown');
   assert.doesNotMatch(html, /<article/); assert.doesNotMatch(html, /thinking/);
   assert.equal(count(html, /<button/g), 3, 'only Bookmark, History and New');
@@ -109,28 +109,28 @@ test('title row: state dot, title with ID tooltip, then Bookmark, History and Ne
 test('running render: user card, full-width agent messages with author rows and Markdown, live row for the pending agent', () => {
   let state = startConversation('Dedupe <strings>', t0);
   state = receiveMessage(state, ID, { role: 'user', content: 'Dedupe <strings>' }, at(0));
-  state = receiveMessage(state, ID, { role: 'claude', content: 'Use a **Set** & keep order:\n\n```ts\n[...new Set(items)]\n```' }, at(30));
-  state = receiveMessage(state, ID, { role: 'codex', content: 'Agreed. Add:\n- a null guard\n- a `readonly` input' }, at(60));
+  state = receiveMessage(state, ID, { role: 'drafter', content: 'Use a **Set** & keep order:\n\n```ts\n[...new Set(items)]\n```' }, at(30));
+  state = receiveMessage(state, ID, { role: 'reviewer', content: 'Agreed. Add:\n- a null guard\n- a `readonly` input' }, at(60));
   const html = renderConversation(state);
-  assert.deepEqual(html.match(/<article class="msg[^"]*"/g), ['<article class="msg msg-user"', '<article class="msg msg-claude"', '<article class="msg msg-codex"', '<article class="msg msg-claude thinking"']);
+  assert.deepEqual(html.match(/<article class="msg[^"]*"/g), ['<article class="msg msg-user"', '<article class="msg msg-agent p-claude msg-drafter"', '<article class="msg msg-agent p-codex msg-reviewer"', '<article class="msg msg-agent p-claude msg-drafter thinking"']);
   assert.match(html, /<article class="msg msg-user"><div class="msg-meta"><time datetime="2026-11-25T10:00:00.000Z">\d{2}:\d{2}<\/time><\/div><div class="user-card"><div class="content"><p>Dedupe &lt;strings&gt;<\/p><\/div><\/div><\/article>/);
-  assert.match(html, /<article class="msg msg-claude" data-index="1"><div class="msg-author"><span class="avatar avatar-claude" aria-hidden="true">C<\/span><span class="name">Claude<\/span><time datetime="2026-11-25T10:00:30.000Z">\d{2}:\d{2}<\/time><button class="icon copy" type="button" data-command="copy" data-index="1" title="Copy message">/);
-  assert.match(html, /<article class="msg msg-codex" data-index="2">.*<span class="avatar avatar-codex" aria-hidden="true">Cx<\/span><span class="name">Codex<\/span>/s);
+  assert.match(html, /<article class="msg msg-agent p-claude msg-drafter" data-index="1"><div class="msg-author"><span class="avatar avatar-claude" aria-hidden="true">C<\/span><span class="name" title="Drafter">Claude<\/span><time datetime="2026-11-25T10:00:30.000Z">\d{2}:\d{2}<\/time><button class="icon copy" type="button" data-command="copy" data-index="1" title="Copy message">/);
+  assert.match(html, /<article class="msg msg-agent p-codex msg-reviewer" data-index="2">.*<span class="avatar avatar-codex" aria-hidden="true">Cx<\/span><span class="name" title="Reviewer">Codex<\/span>/s);
   assert.match(html, /<p>Use a <strong>Set<\/strong> &amp; keep order:<\/p><pre class="code" data-lang="ts"><code>\[\.\.\.new Set\(items\)\]<\/code><\/pre>/);
   assert.match(html, /<p>Agreed\. Add:<\/p><ul><li>a null guard<\/li><li>a <code>readonly<\/code> input<\/li><\/ul>/);
-  assert.match(html, /<article class="msg msg-claude thinking" data-role="Claude" data-since="2026-11-25T10:01:00.000Z" data-offset="3"><div class="msg-author"><span class="avatar avatar-claude" aria-hidden="true">C<\/span><span class="name">Claude<\/span><span class="thinking-label" aria-live="polite"><i class="spark" aria-hidden="true"><\/i>[A-Z][a-z]+… 0s<\/span><\/div><\/article>/);
+  assert.match(html, /<article class="msg msg-agent p-claude msg-drafter thinking" data-role="Claude" data-since="2026-11-25T10:01:00.000Z" data-offset="3"><div class="msg-author"><span class="avatar avatar-claude" aria-hidden="true">C<\/span><span class="name">Claude<\/span><span class="thinking-label" aria-live="polite"><i class="spark" aria-hidden="true"><\/i>[A-Z][a-z]+… 0s<\/span><\/div><\/article>/);
   assert.doesNotMatch(html, /Waiting for|turn \d|bubble/);
   assert.equal(count(html, /data-command="copy"/g), 2, 'copy on landed agent messages only');
 });
 test('live row names the pending agent per round and disappears when not running', () => {
   let state = startConversation('Task', t0);
   let html = renderConversation(state);
-  assert.match(html, /<article class="msg msg-claude thinking" data-role="Claude" data-since="2026-11-25T10:00:00.000Z" data-offset="0">/);
+  assert.match(html, /<article class="msg msg-agent p-claude msg-drafter thinking" data-role="Claude" data-since="2026-11-25T10:00:00.000Z" data-offset="0">/);
   assert.match(html, new RegExp(`${THINKING_WORDS[0]}… 0s`));
   state = receiveMessage(state, ID, { role: 'user', content: 'Task' }, at(0));
-  state = receiveMessage(state, ID, { role: 'claude', content: 'a' }, at(20));
+  state = receiveMessage(state, ID, { role: 'drafter', content: 'a' }, at(20));
   html = renderConversation(state);
-  assert.match(html, /msg-codex thinking" data-role="Codex" data-since="2026-11-25T10:00:20.000Z" data-offset="2"/);
+  assert.match(html, /msg-reviewer thinking" data-role="Codex" data-since="2026-11-25T10:00:20.000Z" data-offset="2"/);
   assert.match(html, new RegExp(`${THINKING_WORDS[2]}… 0s`));
   for (const status of ['completed', 'cancelled', 'failed']) {
     const done = renderConversation(finishConversation(state, status, at(90), status === 'completed' ? undefined : 'stopped'));
@@ -139,33 +139,33 @@ test('live row names the pending agent per round and disappears when not running
 });
 test('streamed progress accumulates into a partial message and is cleared when the message lands', () => {
   let state = receiveMessage(startConversation('Task', t0), ID, { role: 'user', content: 'Task' }, at(0));
-  state = receiveProgress(state, 'claude', { type: 'delta', text: 'Use a ' });
-  state = receiveProgress(state, 'claude', { type: 'delta', text: '**Set**' });
-  assert.deepEqual(state.partial, { role: 'claude', text: 'Use a **Set**' });
+  state = receiveProgress(state, 'drafter', { type: 'delta', text: 'Use a ' });
+  state = receiveProgress(state, 'drafter', { type: 'delta', text: '**Set**' });
+  assert.deepEqual(state.partial, { role: 'drafter', text: 'Use a **Set**' });
   let html = renderConversation(state);
-  assert.match(html, /<article class="msg msg-claude thinking streaming"/);
+  assert.match(html, /<article class="msg msg-agent p-claude msg-drafter thinking streaming"/);
   assert.match(html, /<\/div><div class="content streaming"><p>Use a <strong>Set<\/strong><\/p><\/div><\/article>/);
   assert.match(html, /thinking-label/, 'label stays in the author row');
-  state = receiveMessage(state, ID, { role: 'claude', content: 'Use a **Set**' }, at(10));
+  state = receiveMessage(state, ID, { role: 'drafter', content: 'Use a **Set**' }, at(10));
   assert.ok(!('partial' in state), 'partial cleared by the landed message');
-  state = receiveProgress(state, 'codex', { type: 'activity', text: 'Reasoning' });
-  assert.deepEqual(state.partial, { role: 'codex', text: '', activity: 'Reasoning' });
+  state = receiveProgress(state, 'reviewer', { type: 'activity', text: 'Reasoning' });
+  assert.deepEqual(state.partial, { role: 'reviewer', text: '', activity: 'Reasoning' });
   html = renderConversation(state);
-  assert.match(html, /<article class="msg msg-codex thinking"/); assert.match(html, /<\/div><p class="activity">Reasoning…<\/p><\/article>/);
+  assert.match(html, /<article class="msg msg-agent p-codex msg-reviewer thinking"/); assert.match(html, /<\/div><p class="activity">Reasoning…<\/p><\/article>/);
   assert.doesNotMatch(html, /content streaming/);
-  state = receiveProgress(state, 'codex', { type: 'delta', text: 'Critique' });
-  assert.deepEqual(state.partial, { role: 'codex', text: 'Critique', activity: 'Reasoning' });
+  state = receiveProgress(state, 'reviewer', { type: 'delta', text: 'Critique' });
+  assert.deepEqual(state.partial, { role: 'reviewer', text: 'Critique', activity: 'Reasoning' });
   assert.doesNotMatch(renderConversation(state), /class="activity"/, 'activity hidden once text streams');
   assert.ok(!('partial' in finishConversation(state, 'failed', at(20), 'x')), 'finishing drops the partial');
   assert.ok(!('partial' in resumeConversation(finishConversation(state, 'completed', at(20)), at(30))));
-  assert.equal(receiveProgress(initialState(), 'claude', { type: 'delta', text: 'late' }).partial, undefined, 'progress ignored when not running');
+  assert.equal(receiveProgress(initialState(), 'drafter', { type: 'delta', text: 'late' }).partial, undefined, 'progress ignored when not running');
 });
 test('finished renders show the completion line, duration and notices', () => {
   const state = fullRound();
   const completed = renderConversation(finishConversation(state, 'completed', at(90)));
   assert.match(completed, /status-completed/);
   assert.equal(count(completed, /<article/g), 4, 'task card plus three turns');
-  assert.deepEqual(completed.match(/msg msg-(\w+)"/g), ['msg msg-user"', 'msg msg-claude"', 'msg msg-codex"', 'msg msg-claude"']);
+  assert.deepEqual(completed.match(/msg msg-[\w -]+"/g), ['msg msg-user"', 'msg msg-agent p-claude msg-drafter"', 'msg msg-agent p-codex msg-reviewer"', 'msg msg-agent p-claude msg-drafter"']);
   assert.match(completed, /<p class="done">Round 1 complete · 1m 30s<\/p>$/);
   assert.doesNotMatch(completed, /notice/);
   const failed = renderConversation(finishConversation(state, 'failed', at(90), 'claude exited with code 1. <details>'));
@@ -177,23 +177,23 @@ test('finished renders show the completion line, duration and notices', () => {
 test('follow-up rounds render user replies as cards with a round divider', () => {
   let state = resumeConversation(finishConversation(fullRound(), 'completed', at(90)), at(200));
   state = receiveMessage(state, ID, { role: 'user', content: 'Follow-up **please**' }, at(201));
-  state = receiveMessage(state, ID, { role: 'claude', content: 'claude 2' }, at(230));
+  state = receiveMessage(state, ID, { role: 'drafter', content: 'claude 2' }, at(230));
   const html = renderConversation(state);
-  assert.deepEqual(html.match(/msg msg-(\w+)( thinking)?"/g), ['msg msg-user"', 'msg msg-claude"', 'msg msg-codex"', 'msg msg-claude"', 'msg msg-user"', 'msg msg-claude"', 'msg msg-codex thinking"']);
+  assert.deepEqual(html.match(/msg msg-[\w -]+"/g), ['msg msg-user"', 'msg msg-agent p-claude msg-drafter"', 'msg msg-agent p-codex msg-reviewer"', 'msg msg-agent p-claude msg-drafter"', 'msg msg-user"', 'msg msg-agent p-claude msg-drafter"', 'msg msg-agent p-codex msg-reviewer thinking"']);
   assert.equal(count(html, /round-divider/g), 1); assert.match(html, /<div class="round-divider"><span>Round 2<\/span><\/div><article class="msg msg-user">/);
   assert.match(html, /<p>Follow-up <strong>please<\/strong><\/p>/);
-  assert.match(html, /msg-codex thinking" data-role="Codex" data-since="2026-11-25T10:03:50.000Z" data-offset="6"/);
+  assert.match(html, /msg-reviewer thinking" data-role="Codex" data-since="2026-11-25T10:03:50.000Z" data-offset="6"/);
   assert.match(html, /data-index="5"/, 'copy index follows the message position');
-  const done = renderConversation(finishConversation(receiveMessage(receiveMessage(state, ID, { role: 'codex', content: 'c' }, at(240)), ID, { role: 'claude', content: 'd' }, at(250)), 'completed', at(251)));
+  const done = renderConversation(finishConversation(receiveMessage(receiveMessage(state, ID, { role: 'reviewer', content: 'c' }, at(240)), ID, { role: 'drafter', content: 'd' }, at(250)), 'completed', at(251)));
   assert.match(done, /Round 2 complete · 51s/); assert.match(done, /data-command="new" title="New conversation">/); assert.doesNotMatch(done, /disabled/);
   assert.match(renderConversation(startConversation('Only task', t0)), /msg-user">.*?<p>Only task<\/p>/s, 'task shown before the first publish event');
 });
 test('logos replace the built-in glyphs when provided', () => {
   const logos = { claude: 'https://file+.vscode-resource/media/logos/claude.svg', codex: 'https://file+.vscode-resource/media/logos/codex.svg' };
-  assert.equal(avatar('claude', logos), `<img class="avatar avatar-claude" src="${logos.claude}" alt="Claude">`);
-  assert.equal(avatar('codex', {}), '<span class="avatar avatar-codex" aria-hidden="true">Cx</span>');
+  assert.equal(avatar({ provider: 'claude' }, logos), `<img class="avatar avatar-claude" src="${logos.claude}" alt="Claude">`);
+  assert.equal(avatar({ provider: 'codex' }, {}), '<span class="avatar avatar-codex" aria-hidden="true">Cx</span>');
   assert.match(avatar('user', logos), /^<span class="avatar avatar-user"/);
-  const state = receiveMessage(startConversation('Task', t0), ID, { role: 'claude', content: 'hi' }, at(1));
+  const state = receiveMessage(startConversation('Task', t0), ID, { role: 'drafter', content: 'hi' }, at(1));
   const html = renderConversation(state, logos);
   assert.equal(count(html, /<img class="avatar avatar-claude"/g), 1); assert.equal(count(html, /<img class="avatar avatar-codex"/g), 1, 'live row for Codex uses the logo too');
   assert.doesNotMatch(html, /avatar-claude" aria-hidden="true">C</);
@@ -201,10 +201,10 @@ test('logos replace the built-in glyphs when provided', () => {
 });
 test('nextRole and pendingSince follow the claude, codex, claude relay', () => {
   let state = startConversation('Task', t0);
-  assert.equal(nextRole(state), 'claude'); assert.equal(pendingSince(state), t0.toISOString());
-  state = receiveMessage(state, ID, { role: 'user', content: 'Task' }, at(1)); assert.equal(nextRole(state), 'claude'); assert.equal(pendingSince(state), at(1).toISOString());
-  state = receiveMessage(state, ID, { role: 'claude', content: 'a' }, at(2)); assert.equal(nextRole(state), 'codex');
-  state = receiveMessage(state, ID, { role: 'codex', content: 'b' }, at(3)); assert.equal(nextRole(state), 'claude'); assert.equal(pendingSince(state), at(3).toISOString());
+  assert.equal(nextRole(state), 'drafter'); assert.equal(pendingSince(state), t0.toISOString());
+  state = receiveMessage(state, ID, { role: 'user', content: 'Task' }, at(1)); assert.equal(nextRole(state), 'drafter'); assert.equal(pendingSince(state), at(1).toISOString());
+  state = receiveMessage(state, ID, { role: 'drafter', content: 'a' }, at(2)); assert.equal(nextRole(state), 'reviewer');
+  state = receiveMessage(state, ID, { role: 'reviewer', content: 'b' }, at(3)); assert.equal(nextRole(state), 'drafter'); assert.equal(pendingSince(state), at(3).toISOString());
   assert.equal(pendingSince(initialState()), undefined);
 });
 test('thinking words rotate on a fixed cadence from one list and wrap around', () => {
@@ -235,7 +235,7 @@ test('page is a chat shell: toolbar composer with send/stop, relay and effort pi
   assert.match(html, /<body data-status="idle">/); assert.match(html, /<main id="root"><\/main>/);
   assert.match(html, new RegExp(`<textarea id="task" rows="1" maxlength="${MAX_TASK_CHARS}" placeholder="Ask Claude and Codex…"`));
   assert.match(html, /<button id="mode" class="mode" type="button" data-command="mode"/); assert.doesNotMatch(html, /Enter to send ·/);
-  assert.match(html, /<span id="run-text">Ready<\/span>/); assert.match(html, /<span class="relay" id="relay"[^>]*><span data-stage="0">Claude<\/span><i>⇄<\/i><span data-stage="1">Codex<\/span><span id="turn" class="turn"><\/span><\/span>/);
+  assert.match(html, /<span id="run-text">Ready<\/span>/); assert.match(html, /<span class="relay" id="relay"><button class="seat p-claude" type="button" data-seat="drafter" data-stage="0" title="Drafter: [^"]+"><i class="sw" aria-hidden="true"><\/i><span class="seat-name">Claude<\/span><\/button><i>⇄<\/i><button class="seat p-codex" type="button" data-seat="reviewer" data-stage="1" title="Reviewer: [^"]+"><i class="sw" aria-hidden="true"><\/i><span class="seat-name">Codex<\/span><\/button><span id="turn" class="turn"><\/span><\/span>/);
   assert.match(html, /<button id="effort" class="pill" type="button" data-command="settings"/);
   assert.match(html, /<button id="stop" class="round-btn" type="button" data-command="cancel"/); assert.match(html, /<button id="send" class="round-btn" type="button" data-command="send"/);
   assert.doesNotMatch(html, /data-command="start"/, 'no Start button');
@@ -267,18 +267,18 @@ test('title row shows where a continued conversation came from', () => {
 const { statusLabel, turnsInRound } = view;
 test('verdicts and the round outcome are rendered, and alternate-turn rounds drive the live row', () => {
   let state = receiveMessage(startConversation('Task', t0), ID, { role: 'user', content: 'Task' }, at(0));
-  state = receiveMessage(state, ID, { role: 'claude', content: 'Proposal', verdict: 'continue' }, at(10));
-  state = receiveMessage(state, ID, { role: 'codex', content: 'Issues', verdict: 'continue' }, at(20));
-  state = receiveMessage(state, ID, { role: 'claude', content: 'Revised', verdict: 'agree' }, at(30));
+  state = receiveMessage(state, ID, { role: 'drafter', content: 'Proposal', verdict: 'continue' }, at(10));
+  state = receiveMessage(state, ID, { role: 'reviewer', content: 'Issues', verdict: 'continue' }, at(20));
+  state = receiveMessage(state, ID, { role: 'drafter', content: 'Revised', verdict: 'agree' }, at(30));
   assert.equal(state.messages[1].verdict, 'continue'); assert.equal(state.messages[3].verdict, 'agree'); assert.ok(!('verdict' in state.messages[0]));
-  assert.equal(turnsInRound(state), 3); assert.equal(nextRole(state), 'codex'); assert.equal(currentStage(state), 1);
+  assert.equal(turnsInRound(state), 3); assert.equal(nextRole(state), 'reviewer'); assert.equal(currentStage(state), 1);
   assert.deepEqual(renderMeta(state).turn, 4, 'the running turn is the next one');
   let html = renderConversation(state);
-  assert.match(html, /<span class="name">Claude<\/span><span class="verdict verdict-continue" title="Wants further changes">continues<\/span><time/);
-  assert.match(html, /<span class="name">Claude<\/span><span class="verdict verdict-agree" title="Considers the current recommendation final">agrees<\/span>/);
-  assert.match(html, /msg-codex thinking" data-role="Codex" data-since="2026-11-25T10:00:30.000Z" data-offset="4"/, 'a fourth turn waits on Codex');
-  state = receiveMessage(state, ID, { role: 'codex', content: 'Final', verdict: 'agree' }, at(40));
-  assert.equal(nextRole(state), 'claude', 'a fifth turn would be Claude again');
+  assert.match(html, /<span class="name" title="Drafter">Claude<\/span><span class="verdict verdict-continue" title="Wants further changes">continues<\/span><time/);
+  assert.match(html, /<span class="name" title="Drafter">Claude<\/span><span class="verdict verdict-agree" title="Considers the current recommendation final">agrees<\/span>/);
+  assert.match(html, /msg-reviewer thinking" data-role="Codex" data-since="2026-11-25T10:00:30.000Z" data-offset="4"/, 'a fourth turn waits on Codex');
+  state = receiveMessage(state, ID, { role: 'reviewer', content: 'Final', verdict: 'agree' }, at(40));
+  assert.equal(nextRole(state), 'drafter', 'a fifth turn would be Claude again');
   const agreed = finishConversation(state, 'completed', at(41), undefined, { kind: 'agreed', turns: 4 });
   assert.deepEqual(agreed.outcome, { kind: 'agreed', turns: 4 }); assert.equal(statusLabel(agreed), 'Agreed');
   html = renderConversation(agreed);
@@ -295,15 +295,17 @@ test('verdicts and the round outcome are rendered, and alternate-turn rounds dri
   assert.equal(renderMeta(resumed).turn, 1);
   assert.equal(statusLabel(finishConversation(state, 'failed', at(41), 'x')), 'Failed');
 });
-test('page shows the alternating relay with a turn counter', () => {
+test('page shows the two seats as buttons that open the agent picker, with a turn counter', () => {
   const html = renderPage('n', 'src:');
-  assert.match(html, /<span data-stage="0">Claude<\/span><i>⇄<\/i><span data-stage="1">Codex<\/span><span id="turn" class="turn"><\/span>/);
+  assert.match(html, /data-seat="drafter"[^]*data-seat="reviewer"[^]*<span id="turn" class="turn"><\/span>/);
+  assert.match(html, /vscode\.postMessage\(\{ command: 'pickAgent', seat: button\.dataset\.seat \}\)/);
+  assert.match(html, /button\.disabled = running/, 'seats are locked while a round runs');
   assert.match(html, /'· turn ' \+ meta\.turn/); assert.match(html, /maxTurns/);
 });
 test('logos with a dark variant render both images, switched by the VS Code theme class', () => {
-  const html = avatar('codex', { codex: 'u/blossom-black.svg', codexDark: 'u/blossom-white.svg' });
+  const html = avatar({ provider: 'codex' }, { codex: 'u/blossom-black.svg', codexDark: 'u/blossom-white.svg' });
   assert.equal(html, '<img class="avatar avatar-codex logo-light" src="u/blossom-black.svg" alt="Codex"><img class="avatar avatar-codex logo-dark" src="u/blossom-white.svg" alt="Codex">');
-  assert.equal(avatar('claude', { claude: 'u/c.svg', claudeDark: 'u/c.svg' }), '<img class="avatar avatar-claude" src="u/c.svg" alt="Claude">', 'one image when both variants are the same file');
+  assert.equal(avatar({ provider: 'claude' }, { claude: 'u/c.svg', claudeDark: 'u/c.svg' }), '<img class="avatar avatar-claude" src="u/c.svg" alt="Claude">', 'one image when both variants are the same file');
   const page = renderPage('n', 'src:');
   assert.match(page, /img\.logo-dark \{ display: none; \}/); assert.match(page, /body\.vscode-dark img\.logo-light/);
 });
@@ -327,4 +329,20 @@ test('welcome screen: wordmark, both agents, a tip, and the what\'s-new card onl
   assert.match(withCard, /<section class="whats-new"><header><span>What's new in 0.2.7<\/span><button class="icon" type="button" data-command="dismiss-whats-new" title="Dismiss">/);
   assert.match(withCard, /href="https:\/\/sibinms.github.io\/turnhuddle\/whats-new\/#v0.2.7"/);
   assert.match(renderConversation(initialState(), {}, { whatsNew: '0.2.7' }), /What's new in 0.2.7/);
+});
+test('mixed seats: each message shows its own agent, colour and initials; same-provider seats are named by seat', () => {
+  const { seatsOf, authorName } = view;
+  let state = { ...startConversation('Task', t0), seats: { drafter: { provider: 'gemini', model: 'gemini-2.5-pro' }, reviewer: { provider: 'claude', model: 'opus', label: 'Opus' } } };
+  state = receiveMessage(state, ID, { role: 'user', content: 'Task' }, at(0));
+  state = receiveMessage(state, ID, { role: 'drafter', content: 'Draft', agent: state.seats.drafter }, at(1));
+  const html = renderConversation(state);
+  assert.match(html, /<article class="msg msg-agent p-gemini msg-drafter" data-index="1"><div class="msg-author"><span class="avatar avatar-gemini" aria-hidden="true">G<\/span><span class="name" title="Drafter · model gemini-2\.5-pro">Gemini · gemini-2\.5-pro<\/span>/);
+  assert.match(html, /<article class="msg msg-agent p-claude msg-reviewer thinking" data-role="Claude · Opus"/, 'the live row is the reviewer seat');
+  assert.match(renderPage('n', 's:'), /\.p-gemini, \.avatar-gemini \{ --agent: #4f7cf7; \}/);
+  const twins = { ...state, seats: { drafter: { provider: 'codex' }, reviewer: { provider: 'codex' } } };
+  assert.equal(authorName(twins, { role: 'reviewer' }), 'Codex (reviewer)');
+  assert.equal(authorName(twins, { role: 'drafter', agent: { provider: 'gemini', model: 'gemini-2.5-pro' } }), 'Gemini · gemini-2.5-pro', 'an earlier message by another agent keeps its name');
+  assert.deepEqual(seatsOf(initialState()), { drafter: { provider: 'claude' }, reviewer: { provider: 'codex' } });
+  assert.match(view.renderWelcome({}, { seats: state.seats }), /avatar-gemini.*class="vs">⇄<\/i>.*avatar-claude/s);
+  assert.match(view.avatar({ provider: 'mystery' }), /avatar-other" aria-hidden="true">MY</);
 });

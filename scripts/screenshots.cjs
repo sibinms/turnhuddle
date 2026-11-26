@@ -63,37 +63,47 @@ const C2 = `Agreed on both. Revised plan:
 Both limiters share the Redis store; \`app.set('trust proxy', 1)\` so \`req.ip\` is the client, not the load balancer.`;
 const X2 = 'That covers it. The `trust proxy` note matters behind the load balancer. Ship it.';
 
+const MODEL_SEATS = { drafter: { provider: 'claude', model: 'claude-opus-5-5', label: 'Opus 5.5' }, reviewer: { provider: 'codex', model: 'gpt-6.2-sol', label: 'GPT-6.2-Sol' } };
 function agreedConversation() {
-  let s = view.startConversation(TASK, at(-140));
+  let s = { ...view.startConversation(TASK, at(-140)), seats: MODEL_SEATS };
   s = view.receiveMessage(s, ID, { role: 'user', content: TASK }, at(-140));
-  s = view.receiveMessage(s, ID, { role: 'claude', content: C1, verdict: 'continue' }, at(-122));
-  s = view.receiveMessage(s, ID, { role: 'codex', content: X1, verdict: 'continue' }, at(-96));
-  s = view.receiveMessage(s, ID, { role: 'claude', content: C2, verdict: 'agree' }, at(-74));
-  s = view.receiveMessage(s, ID, { role: 'codex', content: X2, verdict: 'agree' }, at(-61));
+  s = view.receiveMessage(s, ID, { role: 'drafter', content: C1, verdict: 'continue' }, at(-122));
+  s = view.receiveMessage(s, ID, { role: 'reviewer', content: X1, verdict: 'continue' }, at(-96));
+  s = view.receiveMessage(s, ID, { role: 'drafter', content: C2, verdict: 'agree' }, at(-74));
+  s = view.receiveMessage(s, ID, { role: 'reviewer', content: X2, verdict: 'agree' }, at(-61));
   return { ...view.finishConversation(s, 'completed', at(-60), undefined, { kind: 'agreed', turns: 4 }), bookmarked: true };
 }
 function streamingConversation() {
   let s = view.startConversation(TASK, at(-58));
   s = view.receiveMessage(s, ID, { role: 'user', content: TASK }, at(-58));
-  s = view.receiveMessage(s, ID, { role: 'claude', content: C1, verdict: 'continue' }, at(-40));
-  s = view.receiveMessage(s, ID, { role: 'codex', content: X1, verdict: 'continue' }, at(-14));
-  return view.receiveProgress(s, 'claude', { type: 'delta', text: 'Agreed on both. Revised plan:\n\n- `perIp`: 30 attempts / 15 min, keyed on `req.ip`\n- `perAccount`: 5 attempts / 15 min, keyed on the lower' });
+  s = view.receiveMessage(s, ID, { role: 'drafter', content: C1, verdict: 'continue' }, at(-40));
+  s = view.receiveMessage(s, ID, { role: 'reviewer', content: X1, verdict: 'continue' }, at(-14));
+  return view.receiveProgress(s, 'drafter', { type: 'delta', text: 'Agreed on both. Revised plan:\n\n- `perIp`: 30 attempts / 15 min, keyed on `req.ip`\n- `perAccount`: 5 attempts / 15 min, keyed on the lower' });
 }
 function continuedConversation() {
   const task = 'Pick up where we left off: is the retry logic in the payment webhook handler safe to ship?';
   let s = { ...view.startConversation(task, at(-30)), origin: { provider: 'claude', sessionId: 'b4e2c6f0-1a2b-4c3d-8e9f-0a1b2c3d4e5f', title: 'Payment webhook retries' } };
   s = view.receiveMessage(s, ID, { role: 'user', content: task }, at(-30));
-  s = view.receiveMessage(s, ID, { role: 'claude', content: 'From our earlier session: retries use exponential backoff with jitter and stop after 5 attempts, and the handler is idempotent on `event.id`. One gap remains: a crash between charging and recording the event could double-charge on retry. I\'d record the event in the same transaction as the charge.', verdict: 'continue' }, at(-12));
-  return view.receiveProgress(s, 'codex', { type: 'activity', text: 'Reasoning' });
+  s = view.receiveMessage(s, ID, { role: 'drafter', content: 'From our earlier session: retries use exponential backoff with jitter and stop after 5 attempts, and the handler is idempotent on `event.id`. One gap remains: a crash between charging and recording the event could double-charge on retry. I\'d record the event in the same transaction as the charge.', verdict: 'continue' }, at(-12));
+  return view.receiveProgress(s, 'reviewer', { type: 'activity', text: 'Reasoning' });
 }
 
 // ---------- page pieces ----------
 const css = vars => Object.entries(vars).map(([k, v]) => `--vscode-${k}:${v};`).join('');
+const providers = require('../dist/providers');
+/** The seats sent with every render, as the extension does: names on the chips and the placeholder. */
+function seatData(seats) {
+  const names = providers.seatNames(seats);
+  const seat = s => ({ name: names[s], provider: seats[s].provider, title: s });
+  return { seats: { drafter: seat('drafter'), reviewer: seat('reviewer') }, ask: `Ask ${[...new Set([seats.drafter, seats.reviewer].map(x => providers.PROVIDERS[x.provider].name))].join(' and ')}…` };
+}
 function panelPage(state, theme, options = {}) {
   const t = THEMES[theme];
+  const seats = state.status === 'idle' ? (options.seats || providers.DEFAULT_SEATS) : view.seatsOf(state);
+  const extra = seatData(seats);
   const stub = `<script nonce="n1">window.acquireVsCodeApi=()=>({postMessage(){}});</script><style nonce="n1">:root{${css(t.vars)}--vscode-font-family:-apple-system,"Segoe UI",sans-serif;--vscode-font-size:13px;--vscode-editor-font-family:"SF Mono",Menlo,monospace}html,body{background:${t.vars['sideBar-background']}}</style>`;
   return view.renderPage('n1', 'file:').replace('<style nonce="n1">', `${stub}<style nonce="n1">`)
-    .replace('</body>', `<script nonce="n1">window.postMessage({type:"render",status:${JSON.stringify(state.status)},meta:${JSON.stringify(view.renderMeta(state))},effort:"Codex medium",mode:"agreement",maxTurns:10,html:${JSON.stringify(view.renderConversation(state, {}, options))}},"*");</script></body>`);
+    .replace('</body>', `<script nonce="n1">window.postMessage({type:"render",status:${JSON.stringify(state.status)},meta:${JSON.stringify(view.renderMeta(state))},seats:${JSON.stringify(extra.seats)},ask:${JSON.stringify(extra.ask)},effort:${JSON.stringify(seats.drafter.provider === 'codex' || seats.reviewer.provider === 'codex' ? 'Codex medium' : '')},mode:"agreement",maxTurns:10,html:${JSON.stringify(view.renderConversation(state, {}, { ...options, seats }))}},"*");</script></body>`);
 }
 const ICON = {
   files: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
@@ -153,6 +163,16 @@ function historyPicker(t) {
   ${sep('Bookmarked')}${row('bookmark', 'Add rate limiting to the POST /login endpoint in our Express API', '2 min ago · 1 round · agreed', true)}${row('bookmark', 'Choose a cache key scheme for product prices', '1 h ago · 2 rounds · agreed', false)}
   ${sep('Recent')}${row('chat', 'Pick up where we left off: is the retry logic safe to ship?', 'just now · 1 round · running · from Claude Code', false)}${row('chat', 'Review the invoice PDF generator', 'yesterday · 1 round · failed', false)}
   <div class="qp-rule"></div>${row('cont', 'Continue from a Claude Code or Codex session…', '', false)}${row('archive', 'Show archived (3)', '', false)}</div>`;
+}
+function modelPicker(t) {
+  const check = '<path d="m5 12 5 5L20 7"/>', edit = '<path d="M4 20h4L19 9l-4-4L4 16z"/>', swap = '<path d="M7 7h12l-3-3M17 17H5l3 3"/>';
+  const row = (title, detail, desc, sel, mark) => `<div class="qp-row${sel ? ' sel' : ''}">${mark ? svg(mark, 16) : '<span style="width:16px;display:inline-block"></span>'}<div style="flex:1"><div>${title}${desc ? ` <span class="qp-detail" style="display:inline">${desc}</span>` : ''}</div>${detail ? `<div class="qp-detail">${detail}</div>` : ''}</div></div>`;
+  const sep = label => `<div class="qp-sep">${label}</div>`;
+  return `<div class="qp"><div class="qp-title">Reviewer: critiques the drafter</div><div class="qp-input">Choose the agent and model for the reviewer seat (now Codex · GPT-6.2-Sol)</div>
+  ${sep('Claude Code')}${row('Claude', 'Your Claude Code setting (Opus 5)', 'default model', false)}${row('Claude · Opus', 'Latest Opus', 'opus', false)}${row('Claude · Opus 5.5', 'claude-opus-5-5 · used in recent sessions', '', false)}
+  ${sep('Codex')}${row('Codex', 'Your Codex setting (gpt-6-astra)', 'default model', false)}${row('Codex · GPT-6.2-Sol', 'Fast, go-to model for coding and everyday work.', 'gpt-6.2-sol', true, check)}${row('Codex · GPT-6.2-Astra', 'Our most capable model for complex coding and professional work.', 'gpt-6.2-astra', false)}
+  ${sep('Gemini CLI · Preview')}${row('Gemini · gemini-2.5-pro', 'Most capable', '', false)}${row('Other Gemini model…', '', '', false, edit)}
+  <div class="qp-rule"></div>${row('Swap drafter and reviewer', '', 'Codex · GPT-6.2-Sol drafts, Claude · Opus 5.5 reviews', false, swap)}${row('Effort and other settings…', '', 'Claude inherit · Codex medium', false, '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>')}</div>`;
 }
 function emptyConversations(t, v) {
   return `<div class="sec"><span>${svg('<path d="m6 9 6 6 6-6"/>', 12, 2.4)}</span>CONVERSATIONS</div>
@@ -225,7 +245,8 @@ const SCENES = {
   history: { state: continuedConversation, opts: {} },
   continue: { state: () => view.initialState(), opts: { overlay: quickPick } },
   welcome: { state: () => view.initialState(), opts: {}, view: { whatsNew: require('../package.json').version } },
-  recents: { state: agreedConversation, opts: { overlay: historyPicker } }
+  recents: { state: agreedConversation, opts: { overlay: historyPicker } },
+  models: { state: () => view.initialState(), opts: { overlay: modelPicker }, view: { seats: { drafter: { provider: 'claude', model: 'claude-opus-5-5', label: 'Opus 5.5' }, reviewer: { provider: 'codex', model: 'gpt-6.2-sol', label: 'GPT-6.2-Sol' } } } }
 };
 
 fs.rmSync(WORK, { recursive: true, force: true });

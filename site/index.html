@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Turnhuddle: Claude Code and Codex in One VS Code Chat, Until They Agree</title>
-  <meta name="description" content="Turnhuddle is a free VS Code extension that puts Claude Code and Codex in one conversation. Claude proposes, Codex reviews, and they keep going until both agree. Uses the CLIs and logins you already have." />
+  <title>Turnhuddle: Two Coding Agents in One VS Code Chat, Until They Agree</title>
+  <meta name="description" content="Turnhuddle is a free VS Code extension that puts two coding agents in one conversation: Claude Code, Codex or Gemini, with any model. One drafts, the other reviews, and they keep going until both agree. Uses the CLIs and logins you already have." />
   <link rel="canonical" href="https://sibinms.github.io/turnhuddle/" />
   <meta name="theme-color" content="#d97757" />
   <link rel="icon" type="image/png" href="icon.png" />
@@ -84,26 +84,27 @@
   <main id="top">
     <header class="hero">
       <div class="wrap">
-        <!-- whats-new:pill --><a class="pill" href="whats-new/#v0.2.7"><b>New in 0.2.7</b> · named conversations and a Claude Code-style new chat →</a><!-- /whats-new:pill -->
+        <!-- whats-new:pill --><a class="pill" href="whats-new/#v0.3.0"><b>New in 0.3.0</b> · any agent and model in either seat, and Gemini in preview →</a><!-- /whats-new:pill -->
         <h1>Two coding agents. <span class="grad">One answer they both stand behind.</span></h1>
-        <p class="lead">Turnhuddle puts Claude Code and Codex in one VS Code chat. Claude proposes, Codex reviews, and they keep going until both agree, so you get a second opinion without copying text between two tools.</p>
+        <p class="lead">Turnhuddle puts two coding agents in one VS Code chat. Pick who drafts and who reviews, with any model: Claude Code, Codex or Gemini. They keep going until both agree, so you get a second opinion without copying text between two tools.</p>
         <div class="ctas">
           <a class="btn primary" href="https://marketplace.visualstudio.com/items?itemName=Turnhuddle.turnhuddle">Install for VS Code</a>
           <a class="btn ghost" href="#how">See how it works</a>
         </div>
-        <p class="fine">Free and open source · Uses the Claude Code and Codex CLIs you already have · No account, no telemetry</p>
+        <p class="fine">Free and open source · Uses the CLIs you already have · No account, no telemetry</p>
 
         <div class="shot">
           <div class="chrome"><i></i><i></i><i></i><span>Turnhuddle · VS Code</span></div>
           <picture>
             <source srcset="screenshots/chat-dark.png" media="(prefers-color-scheme: dark)" />
-            <img src="screenshots/chat-light.png" width="1800" height="1200" alt="VS Code with the Turnhuddle chat open beside the code: Claude and Codex review a rate-limiting plan and both agree after four turns" fetchpriority="high" />
+            <img src="screenshots/chat-light.png" width="1800" height="1200" alt="VS Code with the Turnhuddle chat open beside the code: Claude Opus 5.5 and Codex GPT-6.2-Sol review a rate-limiting plan and both agree after four turns" fetchpriority="high" />
           </picture>
         </div>
 
         <div class="logos" aria-label="Works with">
           <span><i class="mk c">C</i>Claude Code CLI</span>
           <span><i class="mk x">Cx</i>Codex CLI</span>
+          <span><i class="mk g">G</i>Gemini CLI <small>preview</small></span>
           <span><i class="mk v">VS</i>Visual Studio Code</span>
         </div>
       </div>
@@ -164,13 +165,13 @@
         </div>
         <div class="features">
           <div class="feat"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></div>
-            <h3>One chat, two agents</h3><p>Your task, Claude's proposals and Codex's reviews in a single thread, with code blocks, lists and tables rendered properly.</p></div>
+            <h3>One chat, two agents</h3><p>Your task, the drafter's proposals and the reviewer's critiques in a single thread, with code blocks, lists and tables rendered properly.</p></div>
+          <div class="feat"><div class="ico green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h12l-3-3"/><path d="M17 17H5l3 3"/></svg></div>
+            <h3>Any agent, any model</h3><p>Click a name under the message box to seat Claude, Codex or Gemini with any of your models. Same provider twice, swapped seats: your call.</p></div>
           <div class="feat"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h12"/><path d="M4 18h7"/></svg></div>
-            <h3>Answers stream in</h3><p>Claude's reply appears as it's written. Codex shows what it's doing, then its review. A live status tells you who's thinking and for how long.</p></div>
+            <h3>Answers stream in</h3><p>Claude's and Gemini's replies appear as they're written. Codex shows what it's doing, then its review. A live status tells you who's thinking and for how long.</p></div>
           <div class="feat"><div class="ico green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
             <h3>Rounds that converge</h3><p>The agents alternate until both agree, within a turn limit you choose. Reply to a finished round to dig further on the same conversation.</p></div>
-          <div class="feat"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18"/><path d="M3 12h18"/><path d="M3 19h12"/></svg></div>
-            <h3>Saved conversations</h3><p>Every conversation is kept on your machine and listed with its state. Reopen any of them, run several at once, archive instead of delete.</p></div>
           <div class="feat"><div class="ico green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5v14l11-7z"/></svg></div>
             <h3>Continue a CLI session</h3><p>Started something in Claude Code or Codex? Pick that session and continue it in Turnhuddle, with everything the agent already knows.</p></div>
           <div class="feat"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
@@ -221,14 +222,15 @@
         <div class="center">
           <div class="kicker">Requirements</div>
           <h2>Bring your own agents.</h2>
-          <p class="sub">Turnhuddle drives the official command-line tools. Install them and sign in once in a terminal; Turnhuddle does the rest.</p>
+          <p class="sub">Turnhuddle drives the official command-line tools. Install the ones you want to seat and sign in once in a terminal; Turnhuddle does the rest. Any two will do.</p>
         </div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Needs</th><th>Version</th><th>How Turnhuddle uses it</th><th>Status</th></tr></thead>
             <tbody>
-              <tr><td><i class="mk c">C</i>Claude Code CLI</td><td data-l="Version">Recent release, signed in</td><td data-l="How Turnhuddle uses it">Plan mode, streaming output, <code>--resume</code> for continued sessions</td><td data-l="Status"><span class="tag ok">Required</span></td></tr>
-              <tr><td><i class="mk x">Cx</i>Codex CLI</td><td data-l="Version">Recent release, signed in</td><td data-l="How Turnhuddle uses it">Read-only sandbox, JSON output, <code>exec resume</code> for continued sessions</td><td data-l="Status"><span class="tag ok">Required</span></td></tr>
+              <tr><td><i class="mk c">C</i>Claude Code CLI</td><td data-l="Version">Recent release, signed in</td><td data-l="How Turnhuddle uses it">Plan mode, streaming output, <code>--resume</code> for continued sessions</td><td data-l="Status"><span class="tag ok">Default drafter</span></td></tr>
+              <tr><td><i class="mk x">Cx</i>Codex CLI</td><td data-l="Version">Recent release, signed in</td><td data-l="How Turnhuddle uses it">Read-only sandbox, JSON output, <code>exec resume</code> for continued sessions</td><td data-l="Status"><span class="tag ok">Default reviewer</span></td></tr>
+              <tr><td><i class="mk g">G</i>Gemini CLI</td><td data-l="Version">Recent release with <code>stream-json</code>, signed in</td><td data-l="How Turnhuddle uses it">Headless mode, streaming JSON output, <code>--model</code></td><td data-l="Status"><span class="tag beta">Optional · preview</span></td></tr>
               <tr><td><i class="mk v">VS</i>Visual Studio Code</td><td data-l="Version">1.95 or later</td><td data-l="How Turnhuddle uses it">Chat panel and Output channel</td><td data-l="Status"><span class="tag ok">Required</span></td></tr>
               <tr><td>Operating system</td><td data-l="Version">macOS</td><td data-l="How Turnhuddle uses it">Tested on macOS. Windows and Linux should work but aren't verified yet.</td><td data-l="Status"><span class="tag beta">macOS tested</span></td></tr>
             </tbody>

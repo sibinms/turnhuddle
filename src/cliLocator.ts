@@ -4,7 +4,7 @@
 import { execFile } from 'node:child_process';
 import { accessSync, constants, readdirSync, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
-export type Agent = 'claude' | 'codex';
+export type Agent = 'claude' | 'codex' | 'gemini';
 export type Source = 'setting' | 'path' | 'common' | 'shell' | 'extension';
 export interface Located { path: string; source: Source }
 export interface LocateOptions {
@@ -19,8 +19,9 @@ export interface LocateOptions {
   /** Looks a name up in the login shell; injectable for tests. */
   shellLookup?: (name: string) => Promise<string | undefined>;
 }
-const EXTENSION_IDS: Record<Agent, string> = { claude: 'anthropic.claude-code', codex: 'openai.chatgpt' };
-export const DEFAULT_NAMES: Record<Agent, string> = { claude: 'claude', codex: 'codex' };
+/** VS Code extensions that ship a copy of the CLI. */
+export const EXTENSION_IDS: Partial<Record<Agent, string>> = { claude: 'anthropic.claude-code', codex: 'openai.chatgpt' };
+export const DEFAULT_NAMES: Record<Agent, string> = { claude: 'claude', codex: 'codex', gemini: 'gemini' };
 export const SOURCE_LABELS: Record<Source, string> = { setting: 'from settings', path: 'on PATH', common: 'installed', shell: 'from your shell PATH', extension: 'bundled with the VS Code extension' };
 
 export function isExecutable(path: string, platform: NodeJS.Platform = process.platform): boolean {
@@ -34,6 +35,7 @@ const exeName = (agent: Agent, platform: NodeJS.Platform) => platform === 'win32
 /** The binary inside a vendor extension's install folder, if it ships one. */
 export function bundledBinary(agent: Agent, extensionDir: string, platform: NodeJS.Platform): string | undefined {
   const name = exeName(agent, platform);
+  if (agent === 'gemini') return undefined;
   if (agent === 'claude') {
     const p = join(extensionDir, 'resources', 'native-binary', name);
     return isExecutable(p, platform) ? p : undefined;
@@ -45,6 +47,7 @@ export function bundledBinary(agent: Agent, extensionDir: string, platform: Node
 }
 /** Newest installed copy of a vendor extension under the given roots, by version in the folder name. */
 export function newestExtensionDir(agent: Agent, roots: string[]): string | undefined {
+  if (!EXTENSION_IDS[agent]) return undefined;
   const prefix = `${EXTENSION_IDS[agent]}-`;
   const found: { dir: string; version: number[] }[] = [];
   for (const root of roots) {
@@ -94,6 +97,7 @@ export function defaultExtensionRoots(home: string): string[] {
 /** Logo files shipped inside the vendor's own VS Code extension: [for light themes, for dark themes]. Undefined when absent. */
 export function vendorLogoFiles(agent: Agent, extensionDir: string): { light: string; dark: string } | undefined {
   const pick = (...names: string[]) => names.map(n => join(extensionDir, 'resources', n)).find(p => { try { return statSync(p).isFile(); } catch { return false; } });
+  if (agent === 'gemini') return undefined;
   if (agent === 'claude') { const logo = pick('claude-logo.svg', 'claude-logo.png'); return logo ? { light: logo, dark: logo } : undefined; }
   const light = pick('blossom-black.svg'); const dark = pick('blossom-white.svg');
   return light && dark ? { light, dark } : undefined;

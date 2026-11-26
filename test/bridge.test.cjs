@@ -5,15 +5,15 @@ const limits = { cwd: process.cwd(), timeoutMs: 3000, maxBytes: 1024 };
 test('three turns preserve task, critique and conversation ID', async () => {
   const events = []; let calls = 0;
   const result = await converse('Original task', {
-    claude: async prompt => { assert.match(prompt, /Original task/); if (calls++) assert.match(prompt, /Critique/); return 'Proposal'; },
-    codex: async prompt => { assert.match(prompt, /Proposal/); return 'Critique'; }
+    drafter: async prompt => { assert.match(prompt, /Original task/); if (calls++) assert.match(prompt, /Critique/); return 'Proposal'; },
+    reviewer: async prompt => { assert.match(prompt, /Proposal/); return 'Critique'; }
   }, (id, message) => events.push({ id, message }));
-  assert.deepEqual(result.history.map(m => m.role), ['user', 'claude', 'codex', 'claude']);
+  assert.deepEqual(result.history.map(m => m.role), ['user', 'drafter', 'reviewer', 'drafter']);
   assert.equal(new Set(events.map(e => e.id)).size, 1);
 });
 test('failure stops relay', async () => {
   let called = false;
-  await assert.rejects(converse('Task', { claude: async () => { throw Error('failed'); }, codex: async () => { called = true; return ''; } }, () => {}), /failed/);
+  await assert.rejects(converse('Task', { drafter: async () => { throw Error('failed'); }, reviewer: async () => { called = true; return ''; } }, () => {}), /failed/);
   assert.equal(called, false);
 });
 test('stdin is passed literally without a shell', async () => {
@@ -38,7 +38,8 @@ test('cancellation terminates running process', async () => {
 test('missing CLI reports actionable error', async () => {
   await assert.rejects(run('/nonexistent/bridge-cli', [], '', limits), /Cannot run/);
 });
-const { parseClaudeResult, claudeAdapter, codexAdapter, summarize, CLAUDE_ARGS, CODEX_ARGS } = require('../dist/bridge');
+const { parseClaudeResult, summarize, CLAUDE_ARGS, CODEX_ARGS } = require('../dist/bridge');
+const { claudeAdapter, codexAdapter } = require('../dist/providers');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -131,7 +132,7 @@ test('claude adapter streams deltas as they arrive and returns the final result'
 test('claude adapter falls back to streamed text without a result line and surfaces CLI errors', async () => {
   assert.equal(await claudeAdapter(jsonlCli(claudeLines.slice(0, 5), 0), limits)('p'), 'Proposal');
   await assert.rejects(claudeAdapter(jsonlCli(['{"type":"result","is_error":true,"result":"Not logged in"}'], 0), limits)('p'), /Claude reported an error: Not logged in/);
-  await assert.rejects(claudeAdapter(fakeCli('cat >/dev/null; echo Welcome'), limits)('p'), /Claude returned no result\. Output began: Welcome/);
+  await assert.rejects(claudeAdapter(fakeCli('cat >/dev/null; echo Welcome'), limits)('p'), /Claude returned no answer\. Output began: Welcome/);
 });
 test('codex adapter reports activity, then the message, and ignores stderr progress', async () => {
   const progress = [];
@@ -143,37 +144,38 @@ test('codex adapter reports activity, then the message, and ignores stderr progr
   const two = jsonlCli(['{"type":"item.completed","item":{"type":"agent_message","text":"One"}}', '{"type":"item.completed","item":{"type":"agent_message","text":"Two"}}'], 0);
   assert.equal(await codexAdapter(two, limits)('p'), 'One\n\nTwo');
   await assert.rejects(codexAdapter(jsonlCli(['{"type":"error","message":"quota"}'], 0), limits)('p'), /Codex reported an error: quota/);
-  await assert.rejects(codexAdapter(fakeCli('cat >/dev/null; echo plain text'), limits)('p'), /Codex returned no message\. Output began: plain text/);
+  await assert.rejects(codexAdapter(fakeCli('cat >/dev/null; echo plain text'), limits)('p'), /Codex returned no answer\. Output began: plain text/);
 });
 const { relay, roundInstruction } = require('../dist/bridge');
+const N = { drafter: 'Claude', reviewer: 'Codex' };
 test('relay forwards per-turn progress with the conversation id and role', async () => {
   const seen = [];
-  const adapters = { claude: async (p, on) => { on({ type: 'delta', text: 'a' }); on({ type: 'delta', text: 'b' }); return 'ab'; }, codex: async (p, on) => { on({ type: 'activity', text: 'Reasoning' }); return 'c'; } };
+  const adapters = { drafter: async (p, on) => { on({ type: 'delta', text: 'a' }); on({ type: 'delta', text: 'b' }); return 'ab'; }, reviewer: async (p, on) => { on({ type: 'activity', text: 'Reasoning' }); return 'c'; } };
   const result = await converse('Task', adapters, () => {}, (id, role, progress) => seen.push([id, role, progress.type, progress.text]));
   assert.ok(seen.every(x => x[0] === result.id), 'progress carries the conversation id');
-  assert.deepEqual(seen.map(x => x.slice(1)), [['claude', 'delta', 'a'], ['claude', 'delta', 'b'], ['codex', 'activity', 'Reasoning'], ['claude', 'delta', 'a'], ['claude', 'delta', 'b']]);
+  assert.deepEqual(seen.map(x => x.slice(1)), [['drafter', 'delta', 'a'], ['drafter', 'delta', 'b'], ['reviewer', 'activity', 'Reasoning'], ['drafter', 'delta', 'a'], ['drafter', 'delta', 'b']]);
   await converse('Task', adapters, () => {});
 });
 test('relay continues the same conversation with the full history and follow-up instructions', async () => {
   const prompts = [];
-  const adapters = { claude: async p => { prompts.push(['claude', p]); return 'Claude says'; }, codex: async p => { prompts.push(['codex', p]); return 'Codex says'; } };
-  const first = await converse('Task', adapters, () => {});
+  const adapters = { drafter: async p => { prompts.push(['drafter', p]); return 'Claude says'; }, reviewer: async p => { prompts.push(['reviewer', p]); return 'Codex says'; } };
+  const first = await converse('Task', adapters, () => {}, undefined, { names: N });
   const events = [];
-  const second = await relay(first, 'Follow-up', adapters, (id, m) => events.push([id, m.role]));
+  const second = await relay(first, 'Follow-up', adapters, (id, m) => events.push([id, m.role]), undefined, { names: N });
   assert.equal(second.id, first.id);
-  assert.deepEqual(second.history.map(m => m.role), ['user', 'claude', 'codex', 'claude', 'user', 'claude', 'codex', 'claude']);
+  assert.deepEqual(second.history.map(m => m.role), ['user', 'drafter', 'reviewer', 'drafter', 'user', 'drafter', 'reviewer', 'drafter']);
   assert.equal(second.history[4].content, 'Follow-up');
-  assert.deepEqual(events, [[first.id, 'user'], [first.id, 'claude'], [first.id, 'codex'], [first.id, 'claude']]);
+  assert.deepEqual(events, [[first.id, 'user'], [first.id, 'drafter'], [first.id, 'reviewer'], [first.id, 'drafter']]);
   assert.equal(first.history.length, 4, 'input conversation is not mutated');
   assert.match(prompts[0][1], /Analyse the task/); assert.match(prompts[3][1], /latest message in light of the whole conversation/);
   assert.match(prompts[4][1], /Review Claude’s latest response/); assert.match(prompts[5][1], /Respond to Codex’s critique/);
   assert.match(prompts[5][1], /"Follow-up"/); assert.match(prompts[5][1], /"Task"/, 'history replayed in full');
 });
 test('roundInstruction depends on position in the round', () => {
-  assert.match(roundInstruction('claude', [{ role: 'user', content: 't' }]), /Analyse/);
-  assert.match(roundInstruction('claude', [{ role: 'user', content: 't' }, { role: 'claude', content: 'a' }, { role: 'codex', content: 'b' }]), /critique/);
-  assert.match(roundInstruction('claude', [{ role: 'user', content: 't' }, { role: 'claude', content: 'a' }, { role: 'codex', content: 'b' }, { role: 'claude', content: 'c' }, { role: 'user', content: 'u' }]), /latest message/);
-  assert.match(roundInstruction('codex', []), /Review/);
+  assert.match(roundInstruction('drafter', [{ role: 'user', content: 't' }]), /Analyse/);
+  assert.match(roundInstruction('drafter', [{ role: 'user', content: 't' }, { role: 'drafter', content: 'a' }, { role: 'reviewer', content: 'b' }]), /critique/);
+  assert.match(roundInstruction('drafter', [{ role: 'user', content: 't' }, { role: 'drafter', content: 'a' }, { role: 'reviewer', content: 'b' }, { role: 'drafter', content: 'c' }, { role: 'user', content: 'u' }]), /latest message/);
+  assert.match(roundInstruction('reviewer', []), /Review/);
 });
 const { buildPrompt, CODEX_RESUME_ARGS } = require('../dist/bridge');
 test('resume options add the CLI resume flags and report the session id', async () => {
@@ -202,20 +204,21 @@ test('resume options add the CLI resume flags and report the session id', async 
   void seenArgs;
 });
 test('delta prompts carry only the messages since the agent last spoke', async () => {
-  const history = [{ role: 'user', content: 'Task' }, { role: 'claude', content: 'A1' }, { role: 'codex', content: 'C1' }, { role: 'claude', content: 'A2' }, { role: 'user', content: 'Follow-up' }];
-  const replay = buildPrompt('id1', 'claude', history, 'replay');
-  assert.match(replay, /^You are claude in Turnhuddle conversation id1\. Respond to the user’s latest message/); assert.ok(replay.includes('"A1"'));
-  const delta = buildPrompt('id1', 'claude', history, 'delta');
-  assert.match(delta, /your earlier turns are in your session/); assert.ok(delta.includes('"Follow-up"')); assert.ok(!delta.includes('"A1"') && !delta.includes('"C1"'));
-  const first = buildPrompt('id1', 'claude', [{ role: 'user', content: 'Task' }], 'delta');
-  assert.match(first, /continuing from your own earlier session with the user; Codex now joins as a reviewer/); assert.match(first, /Analyse the task/);
-  const codexDelta = buildPrompt('id1', 'codex', history.slice(0, 2), 'delta');
-  assert.match(codexDelta, /Claude now joins as a reviewer/); assert.ok(codexDelta.includes('"A1"') && codexDelta.includes('"Task"'));
+  const history = [{ role: 'user', content: 'Task' }, { role: 'drafter', content: 'A1' }, { role: 'reviewer', content: 'C1' }, { role: 'drafter', content: 'A2' }, { role: 'user', content: 'Follow-up' }];
+  const replay = buildPrompt('id1', 'drafter', history, 'replay', 'fixed', N);
+  assert.match(replay, /^You are Claude, the drafter, in Turnhuddle conversation id1, working with Codex, the reviewer\. Respond to the user’s latest message/); assert.ok(replay.includes('"A1"'));
+  assert.match(buildPrompt('id1', 'drafter', history), /^You are the drafter, in Turnhuddle conversation id1, working with the reviewer\./, 'generic names without a model');
+  const delta = buildPrompt('id1', 'drafter', history, 'delta', 'fixed', N);
+  assert.match(delta, /Your earlier turns are in your session/); assert.ok(delta.includes('"Follow-up"')); assert.ok(!delta.includes('"A1"') && !delta.includes('"C1"'));
+  const first = buildPrompt('id1', 'drafter', [{ role: 'user', content: 'Task' }], 'delta', 'fixed', N);
+  assert.match(first, /continuing from your own earlier session with the user; Codex, the reviewer, now joins/); assert.match(first, /Analyse the task/);
+  const codexDelta = buildPrompt('id1', 'reviewer', history.slice(0, 2), 'delta', 'fixed', N);
+  assert.match(codexDelta, /Claude, the drafter, now joins/); assert.ok(codexDelta.includes('"A1"') && codexDelta.includes('"Task"'));
   const prompts = [];
-  const adapters = { claude: async p => { prompts.push(['claude', p]); return 'a'; }, codex: async p => { prompts.push(['codex', p]); return 'c'; } };
-  await relay({ id: 'x', history: [] }, 'Task', adapters, () => {}, undefined, { context: { claude: 'delta' } });
-  assert.match(prompts[0][1], /New messages since your last turn/); assert.match(prompts[1][1], /^You are codex in Turnhuddle conversation x\./, 'codex still gets the replay');
-  assert.match(prompts[2][1], /New messages since your last turn:\n\[\{"role":"codex","content":"c"\}\]$/);
+  const adapters = { drafter: async p => { prompts.push(['drafter', p]); return 'a'; }, reviewer: async p => { prompts.push(['reviewer', p]); return 'c'; } };
+  await relay({ id: 'x', history: [] }, 'Task', adapters, () => {}, undefined, { context: { drafter: 'delta' }, names: N });
+  assert.match(prompts[0][1], /New messages since your last turn/); assert.match(prompts[1][1], /^You are Codex, the reviewer, in Turnhuddle conversation x,/, 'the reviewer still gets the replay');
+  assert.match(prompts[2][1], /New messages since your last turn:\n\[\{"from":"Codex","content":"c"\}\]$/);
 });
 const { parseVerdict, agreementInstruction, DEFAULT_MAX_TURNS } = require('../dist/bridge');
 test('parseVerdict strips a trailing verdict line in its common spellings and ignores verdicts elsewhere', () => {
@@ -228,40 +231,40 @@ test('parseVerdict strips a trailing verdict line in its common spellings and ig
   assert.deepEqual(parseVerdict('VERDICT: CONTINUE'), { body: '', verdict: 'continue' }, 'a bare verdict leaves an empty body');
 });
 test('agreement mode alternates until both agree back to back', async () => {
-  const script = { claude: ['Proposal.\nVERDICT: CONTINUE', 'Revised.\nVERDICT: AGREE'], codex: ['Issues.\nVERDICT: CONTINUE', 'Looks final.\nVERDICT: AGREE'] };
+  const script = { drafter: ['Proposal.\nVERDICT: CONTINUE', 'Revised.\nVERDICT: AGREE'], reviewer: ['Issues.\nVERDICT: CONTINUE', 'Looks final.\nVERDICT: AGREE'] };
   const prompts = []; const turns = [];
-  const adapters = { claude: async p => { prompts.push(['claude', p]); return script.claude.shift(); }, codex: async p => { prompts.push(['codex', p]); return script.codex.shift(); } };
-  const result = await converse('Task', adapters, () => {}, undefined, { mode: 'agreement', onTurn: (t, r) => turns.push(`${t}:${r}`) });
+  const adapters = { drafter: async p => { prompts.push(['drafter', p]); return script.drafter.shift(); }, reviewer: async p => { prompts.push(['reviewer', p]); return script.reviewer.shift(); } };
+  const result = await converse('Task', adapters, () => {}, undefined, { mode: 'agreement', names: N, onTurn: (t, r) => turns.push(`${t}:${r}`) });
   assert.deepEqual(result.outcome, { kind: 'agreed', turns: 4 });
-  assert.deepEqual(result.history.map(m => [m.role, m.content, m.verdict]), [['user', 'Task', undefined], ['claude', 'Proposal.', 'continue'], ['codex', 'Issues.', 'continue'], ['claude', 'Revised.', 'agree'], ['codex', 'Looks final.', 'agree']]);
-  assert.deepEqual(turns, ['1:claude', '2:codex', '3:claude', '4:codex']);
+  assert.deepEqual(result.history.map(m => [m.role, m.content, m.verdict]), [['user', 'Task', undefined], ['drafter', 'Proposal.', 'continue'], ['reviewer', 'Issues.', 'continue'], ['drafter', 'Revised.', 'agree'], ['reviewer', 'Looks final.', 'agree']]);
+  assert.deepEqual(turns, ['1:drafter', '2:reviewer', '3:drafter', '4:reviewer']);
   assert.match(prompts[0][1], /Analyse the task and propose an approach\. End your reply with one final line, exactly `VERDICT: AGREE`/);
   assert.match(prompts[1][1], /Review Claude’s latest response\. If it still needs changes/); assert.match(prompts[2][1], /Review Codex’s latest response/);
   assert.ok(prompts[3][1].includes('"verdict":"agree"'), 'verdicts travel with the replayed history');
 });
 test('agreement mode: a single AGREE is not enough, a missing verdict counts as continue, and the cap ends the round', async () => {
   const seq = ['A.\nVERDICT: AGREE', 'B.\nVERDICT: CONTINUE', 'C.\nVERDICT: AGREE', 'D.\nVERDICT: AGREE'];
-  const adapters = { claude: async () => seq.shift(), codex: async () => seq.shift() };
+  const adapters = { drafter: async () => seq.shift(), reviewer: async () => seq.shift() };
   const r = await converse('Task', adapters, () => {}, undefined, { mode: 'agreement' });
   assert.deepEqual(r.outcome, { kind: 'agreed', turns: 4 }, 'AGREE, CONTINUE, AGREE, AGREE → agreed on the fourth turn');
   const quick = ['Final.\nVERDICT: AGREE', 'Yes.\nVERDICT: AGREE'];
-  const fast = await converse('Task', { claude: async () => quick.shift(), codex: async () => quick.shift() }, () => {}, undefined, { mode: 'agreement' });
-  assert.deepEqual(fast.outcome, { kind: 'agreed', turns: 2 }); assert.deepEqual(fast.history.map(m => m.role), ['user', 'claude', 'codex']);
+  const fast = await converse('Task', { drafter: async () => quick.shift(), reviewer: async () => quick.shift() }, () => {}, undefined, { mode: 'agreement' });
+  assert.deepEqual(fast.outcome, { kind: 'agreed', turns: 2 }); assert.deepEqual(fast.history.map(m => m.role), ['user', 'drafter', 'reviewer']);
   let n = 0;
-  const stubborn = await converse('Task', { claude: async () => `claude ${++n} no verdict`, codex: async () => `codex ${++n}\nVERDICT: AGREE` }, () => {}, undefined, { mode: 'agreement', maxTurns: 5 });
+  const stubborn = await converse('Task', { drafter: async () => `claude ${++n} no verdict`, reviewer: async () => `codex ${++n}\nVERDICT: AGREE` }, () => {}, undefined, { mode: 'agreement', maxTurns: 5 });
   assert.deepEqual(stubborn.outcome, { kind: 'limit', turns: 5 });
   assert.equal(stubborn.history.filter(m => m.role !== 'user').length, 5);
   assert.equal(stubborn.history[1].verdict, undefined); assert.equal(stubborn.history[2].verdict, 'agree');
-  assert.deepEqual((await converse('Task', { claude: async () => 'x\nVERDICT: CONTINUE', codex: async () => 'y\nVERDICT: CONTINUE' }, () => {}, undefined, { mode: 'agreement', maxTurns: 1 })).outcome, { kind: 'limit', turns: 2 }, 'the cap is at least two turns');
+  assert.deepEqual((await converse('Task', { drafter: async () => 'x\nVERDICT: CONTINUE', reviewer: async () => 'y\nVERDICT: CONTINUE' }, () => {}, undefined, { mode: 'agreement', maxTurns: 1 })).outcome, { kind: 'limit', turns: 2 }, 'the cap is at least two turns');
   assert.equal(DEFAULT_MAX_TURNS, 10);
 });
 test('fixed mode is unchanged and reports a fixed outcome', async () => {
-  const adapters = { claude: async () => 'Proposal\nVERDICT: AGREE', codex: async () => 'Critique' };
+  const adapters = { drafter: async () => 'Proposal\nVERDICT: AGREE', reviewer: async () => 'Critique' };
   const r = await converse('Task', adapters, () => {});
   assert.deepEqual(r.outcome, { kind: 'fixed', turns: 3 });
-  assert.deepEqual(r.history.map(m => m.role), ['user', 'claude', 'codex', 'claude']);
+  assert.deepEqual(r.history.map(m => m.role), ['user', 'drafter', 'reviewer', 'drafter']);
   assert.equal(r.history[1].content, 'Proposal\nVERDICT: AGREE', 'fixed mode does not parse verdicts'); assert.equal(r.history[1].verdict, undefined);
-  assert.match(agreementInstruction('codex', [{ role: 'user', content: 't' }]), /^Analyse the user’s message/);
+  assert.match(agreementInstruction('reviewer', [{ role: 'user', content: 't' }]), /^Analyse the user’s message/);
 });
 const { checkReplySize, DEFAULT_STREAM_LIMIT_BYTES } = require('../dist/bridge');
 test('streamed tool output does not count against the reply limit; the reply itself does', async () => {

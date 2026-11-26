@@ -1,23 +1,35 @@
 // Pure view-model for the Turnhuddle chat panel. No VS Code imports: unit-tested with Node alone.
-import type { Message, Progress, RoundOutcome, Verdict } from './bridge';
+import type { AgentSpec, Message, Progress, RoundOutcome, Seat, Verdict } from './bridge';
+import { agentName, DEFAULT_SEATS, PROVIDERS, provider, seatNames } from './providers';
 import { escapeHtml, renderMarkdown } from './markdown';
 export { escapeHtml };
 export type Status = 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
 export type FinalStatus = Exclude<Status, 'idle' | 'running'>;
 export type Role = Message['role'];
-export interface ViewMessage { role: Role; content: string; receivedAt: string; verdict?: Verdict }
+export interface ViewMessage { role: Role; content: string; receivedAt: string; verdict?: Verdict; agent?: AgentSpec }
 /** Text streamed so far by the agent whose turn is running, plus its latest activity note. Cleared when the message lands. */
-export interface PartialMessage { role: Exclude<Role, 'user'>; text: string; activity?: string }
+export interface PartialMessage { role: Seat; text: string; activity?: string }
 /** The CLI session a conversation was continued from (see "Continue from" in the README). */
-export interface Origin { provider: 'claude' | 'codex'; sessionId: string; title: string }
-/** CLI session ids each agent keeps for this conversation, so later turns resume instead of replaying. */
-export type AgentSessions = Partial<Record<'claude' | 'codex', string>>;
+export interface Origin { provider: string; sessionId: string; title: string }
+/** The CLI session each seat keeps for this conversation, so later turns resume instead of replaying. Only valid while the same provider sits there. */
+export type AgentSessions = Partial<Record<Seat, { provider: string; id: string }>>;
+export type Seats = Record<Seat, AgentSpec>;
 /** The conversation shown in the panel. All times are ISO strings. */
-export interface ConversationState { title?: string; bookmarked?: boolean; status: Status; task?: string; id?: string; startedAt?: string; roundStartedAt?: string; finishedAt?: string; error?: string; messages: ViewMessage[]; partial?: PartialMessage; origin?: Origin; agentSessions?: AgentSessions; outcome?: RoundOutcome }
-/** Optional webview URIs for the agents' logos, read from the user's own Claude Code / Codex extensions or media/logos/.
- * `…Dark` variants are used under dark themes. Absent: the built-in initials are used. */
-export type Logos = Partial<Record<'claude' | 'codex' | 'claudeDark' | 'codexDark', string>>;
-export const ROLE_LABELS: Record<Role, string> = { user: 'You', claude: 'Claude', codex: 'Codex' };
+export interface ConversationState { title?: string; bookmarked?: boolean; status: Status; task?: string; id?: string; startedAt?: string; roundStartedAt?: string; finishedAt?: string; error?: string; messages: ViewMessage[]; partial?: PartialMessage; origin?: Origin; agentSessions?: AgentSessions; outcome?: RoundOutcome; /** Who sits in each seat for the next (or running) round. */ seats?: Seats }
+/** Optional webview URIs for the providers' logos, keyed by provider id (`<id>Dark` for dark themes), read from the user's own
+ * vendor extensions or media/logos/. Absent: the provider's initials are shown. */
+export type Logos = Partial<Record<string, string>>;
+export const ROLE_LABELS: Record<Role, string> = { user: 'You', drafter: 'Drafter', reviewer: 'Reviewer' };
+/** The seats of a conversation, falling back to Claude drafting and Codex reviewing (how every conversation before 0.3 ran). */
+export function seatsOf(state: ConversationState): Seats { return { drafter: state.seats?.drafter ?? DEFAULT_SEATS.drafter, reviewer: state.seats?.reviewer ?? DEFAULT_SEATS.reviewer }; }
+/** Who wrote an agent message: the agent recorded on it, else whoever sits in its seat. */
+export function messageAgent(state: ConversationState, message: { role: Seat; agent?: AgentSpec }): AgentSpec { return message.agent ?? seatsOf(state)[message.role]; }
+/** Display name of a message's author; the seat is added when both seats would otherwise read the same. */
+export function authorName(state: ConversationState, message: { role: Seat; agent?: AgentSpec }): string {
+  const name = agentName(messageAgent(state, message));
+  const seats = seatsOf(state);
+  return agentName(seats.drafter) === agentName(seats.reviewer) && name === agentName(seats[message.role]) ? seatNames(seats)[message.role] : name;
+}
 export const STATUS_LABELS: Record<Status, string> = { idle: 'Ready', running: 'Running', completed: 'Completed', cancelled: 'Stopped', failed: 'Failed' };
 /** Label for the state dot: a completed agreement round says so. */
 export function statusLabel(state: ConversationState): string {
@@ -45,10 +57,10 @@ export function resumeConversation(state: ConversationState, at: Date = new Date
 export function rounds(state: ConversationState): number { return state.messages.filter(m => m.role === 'user').length; }
 export function receiveMessage(state: ConversationState, id: string, message: Message, at: Date = new Date()): ConversationState {
   const { partial: _partial, ...rest } = state;
-  return { ...rest, id, messages: [...state.messages, { role: message.role, content: message.content, receivedAt: at.toISOString(), ...(message.verdict ? { verdict: message.verdict } : {}) }] };
+  return { ...rest, id, messages: [...state.messages, { role: message.role, content: message.content, receivedAt: at.toISOString(), ...(message.verdict ? { verdict: message.verdict } : {}), ...(message.agent ? { agent: message.agent } : {}) }] };
 }
 /** Streamed text or an activity note for the running turn. Ignored unless the conversation is running. */
-export function receiveProgress(state: ConversationState, role: Exclude<Role, 'user'>, progress: Progress): ConversationState {
+export function receiveProgress(state: ConversationState, role: Seat, progress: Progress): ConversationState {
   if (state.status !== 'running') return state;
   const current = state.partial?.role === role ? state.partial : { role, text: '' };
   const partial: PartialMessage = progress.type === 'delta' ? { ...current, text: current.text + progress.text } : { ...current, activity: progress.text };
@@ -104,14 +116,14 @@ export function turnsInRound(state: ConversationState): number {
   const lastUser = inRound.map(m => m.role).lastIndexOf('user');
   return Math.max(inRound.length - lastUser - 1, 0);
 }
-/** Index of the running stage (0 Claude, 1 Codex) or -1 when nothing runs. Agents alternate, so this is the parity of the turn. */
+/** Index of the running stage (0 drafter, 1 reviewer) or -1 when nothing runs. Agents alternate, so this is the parity of the turn. */
 export function currentStage(state: ConversationState): number {
   if (state.status !== 'running') return -1;
   return turnsInRound(state) % 2;
 }
-/** Which agent the relay is waiting on: Claude first, then alternating. */
-export function nextRole(state: ConversationState): Exclude<Role, 'user'> {
-  return turnsInRound(state) % 2 === 0 ? 'claude' : 'codex';
+/** Which seat the relay is waiting on: the drafter first, then alternating. */
+export function nextRole(state: ConversationState): Seat {
+  return turnsInRound(state) % 2 === 0 ? 'drafter' : 'reviewer';
 }
 /** When the pending turn began: the last arrival in this round, else the round start. */
 export function pendingSince(state: ConversationState): string | undefined {
@@ -137,16 +149,16 @@ export function thinkingLabel(word: string, elapsedSeconds: number): string {
   const elapsed = s < 60 ? s + 's' : Math.floor(s / 60) + 'm ' + (s % 60) + 's';
   return word + '… ' + elapsed;
 }
-/** Built-in avatar glyphs: plain initials in brand-ish colours. Official marks are not bundled (trademark); drop SVGs into media/logos/ instead. */
-export function avatar(role: Role, logos: Logos = {}): string {
-  const logo = role === 'user' ? undefined : logos[role];
-  const dark = role === 'user' ? undefined : logos[`${role}Dark`];
-  if (logo && dark && dark !== logo) return `<img class="avatar avatar-${role} logo-light" src="${escapeHtml(logo)}" alt="${escapeHtml(ROLE_LABELS[role])}"><img class="avatar avatar-${role} logo-dark" src="${escapeHtml(dark)}" alt="${escapeHtml(ROLE_LABELS[role])}">`;
-  if (logo) return `<img class="avatar avatar-${role}" src="${escapeHtml(logo)}" alt="${escapeHtml(ROLE_LABELS[role])}">`;
-  const glyph = role === 'user'
-    ? '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="3" fill="currentColor"/><path d="M2.5 14a5.5 5.5 0 0 1 11 0Z" fill="currentColor"/></svg>'
-    : role === 'claude' ? 'C' : 'Cx';
-  return `<span class="avatar avatar-${role}" aria-hidden="true">${glyph}</span>`;
+/** Avatar for you or an agent: the provider's logo when one is available (light and dark variants), else its initials in its colour. */
+export function avatar(who: 'user' | AgentSpec, logos: Logos = {}): string {
+  if (who === 'user') return '<span class="avatar avatar-user" aria-hidden="true"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="3" fill="currentColor"/><path d="M2.5 14a5.5 5.5 0 0 1 11 0Z" fill="currentColor"/></svg></span>';
+  const def = provider(who.provider);
+  const id = def?.id ?? 'other';
+  const alt = escapeHtml(def?.name ?? who.provider);
+  const logo = logos[id]; const dark = logos[`${id}Dark`];
+  if (logo && dark && dark !== logo) return `<img class="avatar avatar-${id} logo-light" src="${escapeHtml(logo)}" alt="${alt}"><img class="avatar avatar-${id} logo-dark" src="${escapeHtml(dark)}" alt="${alt}">`;
+  if (logo) return `<img class="avatar avatar-${id}" src="${escapeHtml(logo)}" alt="${alt}">`;
+  return `<span class="avatar avatar-${id}" aria-hidden="true">${escapeHtml(def?.initials ?? who.provider.slice(0, 2).toUpperCase())}</span>`;
 }
 const ICONS = {
   plus: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v11M2.5 8h11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>',
@@ -166,7 +178,8 @@ export function renderHeader(state: ConversationState): string {
   const tooltip = state.id ? `Conversation ${state.id}` : 'No conversation yet';
   const title = idle ? UNTITLED : conversationTitle(state);
   const label = statusLabel(state);
-  const origin = state.origin && !idle ? `<span class="origin" title="${escapeHtml(`Continued from ${ROLE_LABELS[state.origin.provider]} session ${state.origin.sessionId}: ${state.origin.title}`)}">from ${escapeHtml(ROLE_LABELS[state.origin.provider])}</span>` : '';
+  const from = state.origin ? provider(state.origin.provider)?.name ?? state.origin.provider : '';
+  const origin = state.origin && !idle ? `<span class="origin" title="${escapeHtml(`Continued from ${from} session ${state.origin.sessionId}: ${state.origin.title}`)}">from ${escapeHtml(from)}</span>` : '';
   const dot = idle ? '' : `<span class="state" title="${escapeHtml(label)}"><i class="dot" aria-hidden="true"></i><span class="sr">${escapeHtml(label)}</span></span>`;
   const bookmark = `<button class="icon bookmark${state.bookmarked ? ' on' : ''}" type="button" data-command="bookmark" title="${state.bookmarked ? 'Remove bookmark' : 'Bookmark this conversation'}" aria-pressed="${state.bookmarked ? 'true' : 'false'}"${idle ? ' disabled' : ''}>${state.bookmarked ? ICONS.bookmarked : ICONS.bookmark}</button>`;
   const titleEl = idle ? `<span class="title" title="${escapeHtml(tooltip)}">${escapeHtml(title)}</span>` : `<button class="title" type="button" data-command="rename" title="${escapeHtml(`Rename · ${tooltip}`)}">${escapeHtml(title)}</button>`;
@@ -179,32 +192,36 @@ export function renderMeta(state: ConversationState): RenderMeta {
 }
 /** HTML fragment for the chat area (header, thread, notices). The composer lives in the static page, outside this fragment. */
 /** Extra content for the welcome screen. */
-export interface WelcomeOptions { /** Show the "What's new in <version>" card for this version. */ whatsNew?: string }
+export interface WelcomeOptions { /** Show the "What's new in <version>" card for this version. */ whatsNew?: string; /** Seats a new conversation would get (shown on the welcome screen). */ seats?: Seats }
 /** One-line tips under the wordmark, one shown per new conversation (chosen in the webview). */
 export const TIPS = [
-  'Claude proposes, Codex reviews, and they keep going until both agree.',
+  'One agent drafts, the other reviews, and they keep going until both agree.',
+  'Pick who drafts and who reviews, and which model each uses, from the names under the message box.',
   'Bookmark a conversation to keep it at the top of your history.',
   'Reply to a finished round to dig deeper. Both agents see the whole conversation.',
   'Continue a session you started in the Claude Code or Codex CLI from the history.',
   'Click a conversation\u2019s title to rename it.',
-  'Set how hard Codex and Claude think in Turnhuddle\u2019s settings.'
+  'Set how hard Codex and Claude think in Turnhuddle\u2019s settings.',
+  'Any two can sit together: Claude, Codex or Gemini, even the same provider with two different models.'
 ];
 const MARK = '<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" stroke="var(--th-claude)" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v5h-5" stroke="var(--th-claude)" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" stroke="var(--th-codex)" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 16H3v5" stroke="var(--th-codex)" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 /** The new-conversation screen, laid out like Claude Code's: wordmark, the two agents, a tip, and a dismissible what's-new card. */
 export function renderWelcome(logos: Logos = {}, options: WelcomeOptions = {}): string {
   const card = options.whatsNew ? `<section class="whats-new"><header><span>What's new in ${escapeHtml(options.whatsNew)}</span><button class="icon" type="button" data-command="dismiss-whats-new" title="Dismiss">${ICONS.close}</button></header><p>See what changed in this version, with screenshots.</p><a href="https://sibinms.github.io/turnhuddle/whats-new/#v${escapeHtml(options.whatsNew)}">Read the release notes →</a></section>` : '';
-  return `<section class="welcome"><div class="wordmark">${MARK}<span>Turnhuddle</span></div><div class="welcome-marks">${avatar('claude', logos)}<i class="vs">⇄</i>${avatar('codex', logos)}</div><p class="tip" data-tips="${escapeHtml(JSON.stringify(TIPS))}">${escapeHtml(TIPS[0])}</p>${card}</section>`;
+  const seats = options.seats ?? DEFAULT_SEATS;
+  return `<section class="welcome"><div class="wordmark">${MARK}<span>Turnhuddle</span></div><div class="welcome-marks" title="${escapeHtml(`${agentName(seats.drafter)} drafts, ${agentName(seats.reviewer)} reviews`)}">${avatar(seats.drafter, logos)}<i class="vs">⇄</i>${avatar(seats.reviewer, logos)}</div><p class="tip" data-tips="${escapeHtml(JSON.stringify(TIPS))}">${escapeHtml(TIPS[0])}</p>${card}</section>`;
 }
 export function renderConversation(state: ConversationState, logos: Logos = {}, options: WelcomeOptions = {}): string {
   if (state.status === 'idle') return `${renderHeader(state)}${renderWelcome(logos, options)}`;
   const running = state.status === 'running';
   const user = (content: string, time: string) => `<article class="msg msg-user"><div class="msg-meta"><time datetime="${escapeHtml(time)}">${formatTime(time)}</time></div><div class="user-card"><div class="content">${renderMarkdown(content)}</div></div></article>`;
   const verdictTag = (verdict?: Verdict) => verdict ? `<span class="verdict verdict-${verdict}" title="${verdict === 'agree' ? 'Considers the current recommendation final' : 'Wants further changes'}">${verdict === 'agree' ? 'agrees' : 'continues'}</span>` : '';
-  const agent = (role: Exclude<Role, 'user'>, content: string, time: string, index: number, verdict?: Verdict) => `<article class="msg msg-${role}" data-index="${index}"><div class="msg-author">${avatar(role, logos)}<span class="name">${escapeHtml(ROLE_LABELS[role])}</span>${verdictTag(verdict)}<time datetime="${escapeHtml(time)}">${formatTime(time)}</time><button class="icon copy" type="button" data-command="copy" data-index="${index}" title="Copy message">${ICONS.copy}</button></div><div class="content">${renderMarkdown(content)}</div></article>`;
+  const agentClass = (spec: AgentSpec) => `msg msg-agent p-${escapeHtml(provider(spec.provider)?.id ?? 'other')}`;
+  const agent = (m: ViewMessage & { role: Seat }, index: number) => `<article class="${agentClass(messageAgent(state, m))} msg-${m.role}" data-index="${index}"><div class="msg-author">${avatar(messageAgent(state, m), logos)}<span class="name" title="${escapeHtml(`${ROLE_LABELS[m.role]}${messageAgent(state, m).model ? ` · model ${messageAgent(state, m).model}` : ''}`)}">${escapeHtml(authorName(state, m))}</span>${verdictTag(m.verdict)}<time datetime="${escapeHtml(m.receivedAt)}">${formatTime(m.receivedAt)}</time><button class="icon copy" type="button" data-command="copy" data-index="${index}" title="Copy message">${ICONS.copy}</button></div><div class="content">${renderMarkdown(m.content)}</div></article>`;
   // Before the first publish event the task is shown from the state; afterwards every message, user replies included, is rendered.
   const list: ViewMessage[] = state.messages.length ? state.messages : state.task ? [{ role: 'user', content: state.task, receivedAt: state.startedAt ?? '' }] : [];
   let round = 0;
-  const turns = list.map((m, index) => `${m.role === 'user' && ++round > 1 ? `<div class="round-divider"><span>Round ${round}</span></div>` : ''}${m.role === 'user' ? user(m.content, m.receivedAt) : agent(m.role, m.content, m.receivedAt, index, m.verdict)}`).join('');
+  const turns = list.map((m, index) => `${m.role === 'user' && ++round > 1 ? `<div class="round-divider"><span>Round ${round}</span></div>` : ''}${m.role === 'user' ? user(m.content, m.receivedAt) : agent(m as ViewMessage & { role: Seat }, index)}`).join('');
   let thinking = '';
   if (running) {
     const role = nextRole(state); const since = pendingSince(state) ?? new Date().toISOString();
@@ -212,7 +229,8 @@ export function renderConversation(state: ConversationState, logos: Logos = {}, 
     const label = `<span class="thinking-label" aria-live="polite"><i class="spark" aria-hidden="true"></i>${escapeHtml(thinkingLabel(thinkingWord(0, THINKING_WORDS, state.messages.length), 0))}</span>`;
     const activity = partial?.activity && !partial.text ? `<p class="activity">${escapeHtml(partial.activity)}…</p>` : '';
     const streamed = partial?.text ? `<div class="content streaming">${renderMarkdown(partial.text)}</div>` : '';
-    thinking = `<article class="msg msg-${role} thinking${streamed ? ' streaming' : ''}" data-role="${escapeHtml(ROLE_LABELS[role])}" data-since="${escapeHtml(since)}" data-offset="${state.messages.length}"><div class="msg-author">${avatar(role, logos)}<span class="name">${escapeHtml(ROLE_LABELS[role])}</span>${label}</div>${activity}${streamed}</article>`;
+    const spec = seatsOf(state)[role];
+    thinking = `<article class="${agentClass(spec)} msg-${role} thinking${streamed ? ' streaming' : ''}" data-role="${escapeHtml(authorName(state, { role }))}" data-since="${escapeHtml(since)}" data-offset="${state.messages.length}"><div class="msg-author">${avatar(spec, logos)}<span class="name">${escapeHtml(authorName(state, { role }))}</span>${label}</div>${activity}${streamed}</article>`;
   }
   const error = state.error ? `<section class="notice notice-${state.status}"><strong>${state.status === 'cancelled' ? 'Stopped' : 'Failed'}</strong><pre>${escapeHtml(state.error)}</pre></section>` : '';
   const duration = state.startedAt && state.finishedAt ? ` · ${formatDuration(state.roundStartedAt ?? state.startedAt, state.finishedAt)}` : '';
@@ -276,16 +294,17 @@ button.title:hover { background: var(--th-surface); } button.title:focus-visible
 .msg-author { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; font-size: 0.9em; }
 .msg-author .name { font-weight: 600; } .msg-author time { color: var(--th-muted); font-size: 0.9em; }
 .msg-author .copy { margin-left: auto; opacity: 0; transition: opacity 0.15s; } .msg:hover .copy, .copy:focus-visible { opacity: 1; }
-.msg-claude .name { color: var(--th-claude); } .msg-codex .name { color: var(--th-codex); }
+${Object.values(PROVIDERS).map(p => `.p-${p.id}, .avatar-${p.id} { --agent: ${p.color}; }`).join(' ')} .p-other, .avatar-other { --agent: #8a8a8a; }
+.msg-agent .name { color: var(--agent); }
 .avatar { flex: none; width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; object-fit: contain; }
 .welcome .avatar { width: 28px; height: 28px; font-size: 12px; }
 .avatar-user { background: var(--th-accent); color: var(--th-accent-fg); } .avatar-user svg { width: 12px; height: 12px; }
-.avatar-claude { background: var(--th-claude); } .avatar-codex { background: var(--th-codex); }
+span.avatar:not(.avatar-user) { background: var(--agent, #8a8a8a); }
 img.avatar { background: transparent; padding: 1px; }
 img.logo-dark { display: none; }
 body.vscode-dark img.logo-light, body.vscode-high-contrast:not(.vscode-high-contrast-light) img.logo-light { display: none; }
 body.vscode-dark img.logo-dark, body.vscode-high-contrast:not(.vscode-high-contrast-light) img.logo-dark { display: inline-flex; }
-.msg-claude .content, .msg-codex .content { padding-left: 27px; }
+.msg-agent .content { padding-left: 27px; }
 .content > :first-child { margin-top: 0; } .content > :last-child { margin-bottom: 0; }
 .content p, .content ul, .content ol, .content blockquote, .content table, .content pre { margin: 0 0 10px; }
 .content h1, .content h2, .content h3 { margin: 14px 0 6px; font-size: 1.05em; font-weight: 700; } .content h4, .content h5, .content h6 { margin: 10px 0 4px; font-size: 1em; font-weight: 600; }
@@ -319,15 +338,21 @@ textarea { width: 100%; box-sizing: border-box; min-height: 42px; max-height: 20
 textarea::placeholder { color: var(--vscode-input-placeholderForeground); } textarea:disabled { opacity: 0.6; }
 .composer-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px 8px 10px; min-height: 28px; min-width: 0; }
 .composer-bar > * { flex: 0 1 auto; min-width: 0; } .composer-bar .round-btn, .composer-bar .run-status { flex: none; }
+/* When the bar is tight the seats keep their room longest: the effort pill and the mode label give way first. */
+.composer-bar .relay { flex: 0 1 auto; } .composer-bar .pill { flex: 0 6 auto; min-width: 2.5em; } .composer-bar .mode { flex: 0 3 auto; overflow: hidden; text-overflow: ellipsis; }
 .run-status { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8em; color: var(--th-muted); white-space: nowrap; }
 .run-status .spinner { display: none; width: 10px; height: 10px; border: 2px solid var(--vscode-progressBar-background, #0e70c0); border-top-color: transparent; border-radius: 50%; animation: spin 0.9s linear infinite; }
 body[data-status="running"] .run-status .spinner { display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .relay { display: inline-flex; align-items: center; gap: 3px; margin-left: 2px; padding: 2px 7px; border-radius: 10px; background: var(--th-surface); font-size: 0.76em; color: var(--th-muted); white-space: nowrap; overflow: hidden; }
-.relay span { padding: 0 1px; } .relay i { font-style: normal; opacity: 0.5; }
-.relay span[data-active] { color: var(--vscode-foreground); font-weight: 600; }
+.relay > i { font-style: normal; opacity: 0.5; }
+.relay .seat { padding: 1px 4px; border-radius: 6px; max-width: 16em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
+.relay .seat:hover:not(:disabled) { background: color-mix(in srgb, var(--th-muted) 18%, transparent); color: var(--vscode-foreground); }
+.relay .seat:disabled { opacity: 1; cursor: default; }
+.relay .seat i.sw { display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: var(--agent, var(--th-muted)); vertical-align: 0; }
+.relay .seat[data-active] { color: var(--vscode-foreground); font-weight: 600; }
 .relay .turn { margin-left: 4px; opacity: 0.8; } .relay .turn:empty { display: none; }
-.relay span[data-active]::before { content: ''; display: inline-block; width: 5px; height: 5px; margin-right: 4px; border-radius: 50%; background: var(--vscode-progressBar-background, #0e70c0); vertical-align: 1px; animation: pulse-dot 1s ease-in-out infinite; }
+.relay .seat[data-active]::before { content: ''; display: inline-block; width: 5px; height: 5px; margin-right: 4px; border-radius: 50%; background: var(--vscode-progressBar-background, #0e70c0); vertical-align: 1px; animation: pulse-dot 1s ease-in-out infinite; }
 .pill { padding: 2px 8px; border-radius: 10px; background: var(--th-surface); font-size: 0.76em; color: var(--th-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body[data-status="running"] .pill { display: none; }
 .pill:hover { color: var(--vscode-foreground); }
@@ -343,7 +368,9 @@ body[data-status="running"] .mode { display: none; }
 #stop:hover { background: var(--vscode-button-secondaryHoverBackground, var(--th-surface)); }
 body[data-status="running"] #stop { display: inline-flex; } body[data-status="running"] #send { display: none; }
 .hint { margin: 6px 2px 0; font-size: 0.76em; color: var(--th-muted); opacity: 0.8; }
-@media (max-width: 330px) { .relay { display: none; } } @media (max-width: 390px) { .pill { display: none; } }
+/* Status shows only while a round runs; the thread already says how the last round ended. The effort is in the seats' tooltips. */
+body:not([data-status="running"]) .run-status { display: none; } .composer-bar .pill { display: none; }
+@media (max-width: 300px) { .relay { display: none; } } @media (max-width: 520px) { .pill { display: none; } }
 </style>
 </head>
 <body data-status="idle">
@@ -353,7 +380,7 @@ body[data-status="running"] #stop { display: inline-flex; } body[data-status="ru
     <textarea id="task" rows="1" maxlength="${MAX_TASK_CHARS}" placeholder="Ask Claude and Codex…" aria-label="Message"></textarea>
     <div class="composer-bar">
       <span class="run-status"><i class="spinner" aria-hidden="true"></i><span id="run-text">Ready</span></span>
-      <span class="relay" id="relay" title="Claude and Codex alternate until both agree (or the fixed three turns in fixed mode)"><span data-stage="0">Claude</span><i>⇄</i><span data-stage="1">Codex</span><span id="turn" class="turn"></span></span>
+      <span class="relay" id="relay"><button class="seat p-claude" type="button" data-seat="drafter" data-stage="0" title="Drafter: proposes and revises. Click to choose the agent and model."><i class="sw" aria-hidden="true"></i><span class="seat-name">Claude</span></button><i>⇄</i><button class="seat p-codex" type="button" data-seat="reviewer" data-stage="1" title="Reviewer: critiques the drafter. Click to choose the agent and model."><i class="sw" aria-hidden="true"></i><span class="seat-name">Codex</span></button><span id="turn" class="turn"></span></span>
       <button id="effort" class="pill" type="button" data-command="settings" title="Turnhuddle settings"></button>
       <span class="spacer"></span>
       <button id="mode" class="mode" type="button" data-command="mode" title="How a round ends. Click to switch."></button>
@@ -408,9 +435,15 @@ body[data-status="running"] #stop { display: inline-flex; } body[data-status="ru
     document.body.dataset.status = status;
     const running = status === 'running';
     task.disabled = running; send.disabled = running;
-    task.placeholder = status === 'idle' ? 'Ask Claude and Codex…' : running ? 'Conversation in progress…' : 'Reply to continue the conversation…';
+    const ask = typeof event.data.ask === 'string' ? event.data.ask : 'Ask Claude and Codex…';
+    task.placeholder = status === 'idle' ? ask : running ? 'Conversation in progress…' : 'Reply to continue the conversation…';
+    if (event.data.seats) for (const button of document.querySelectorAll('#relay .seat')) {
+      const seat = event.data.seats[button.dataset.seat];
+      if (!seat) continue;
+      button.className = 'seat p-' + seat.provider; button.querySelector('.seat-name').textContent = seat.name; button.title = seat.title; button.disabled = running;
+    }
     runText.textContent = describe(meta);
-    for (const stage of document.querySelectorAll('#relay [data-stage]')) { if (Number(stage.dataset.stage) === meta.stage) stage.setAttribute('data-active', ''); else stage.removeAttribute('data-active'); }
+    for (const stage of document.querySelectorAll('#relay .seat')) { if (Number(stage.dataset.stage) === meta.stage) stage.setAttribute('data-active', ''); else stage.removeAttribute('data-active'); }
     document.getElementById('turn').textContent = running && meta.turn ? '· turn ' + meta.turn + (event.data.maxTurns ? ' of ≤' + event.data.maxTurns : '') : '';
     const tip = root.querySelector('.tip[data-tips]');
     if (tip) { try { const tips = JSON.parse(tip.dataset.tips); tip.textContent = tips[Math.floor(Math.random() * tips.length)]; } catch (e) { /* keep the first tip */ } }
@@ -427,6 +460,7 @@ body[data-status="running"] #stop { display: inline-flex; } body[data-status="ru
   document.getElementById('stop').addEventListener('click', () => vscode.postMessage({ command: 'cancel' }));
   effort.addEventListener('click', () => vscode.postMessage({ command: 'settings' }));
   document.getElementById('mode').addEventListener('click', () => vscode.postMessage({ command: 'mode' }));
+  for (const button of document.querySelectorAll('#relay .seat')) button.addEventListener('click', () => { if (!button.disabled) vscode.postMessage({ command: 'pickAgent', seat: button.dataset.seat }); });
   root.addEventListener('click', event => {
     const button = event.target.closest('button[data-command]');
     if (!button || button.disabled) return;

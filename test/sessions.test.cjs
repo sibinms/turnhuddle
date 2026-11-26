@@ -134,14 +134,15 @@ test('origin and agent sessions are kept in memory and on disk', async () => {
   const manager = new SessionManager(new HistoryStore(dir), 10);
   const origin = { provider: 'claude', sessionId: 'orig-1', title: 'Earlier chat' };
   const c = manager.create('a', 'Continue please', '/w', at(0), origin);
-  assert.deepEqual(c.origin, origin); assert.deepEqual(c.agentSessions, { claude: 'orig-1' }, 'the first turn resumes the origin session');
-  manager.update('a', s => withAgentSession(s, 'claude', 'fork-2'));
-  manager.update('a', s => withAgentSession(s, 'codex', 'thread-3'));
+  assert.deepEqual(c.origin, origin); assert.deepEqual(c.agentSessions, { drafter: { provider: 'claude', id: 'orig-1' } }, 'the drafter resumes the origin session');
+  manager.update('a', s => withAgentSession(s, 'drafter', 'claude', 'fork-2'));
+  manager.update('a', s => withAgentSession(s, 'reviewer', 'codex', 'thread-3'));
   manager.update('a', s => receiveMessage(s, 'a', { role: 'user', content: 'Continue please' }, at(1)), at(1));
-  assert.deepEqual(manager.get().agentSessions, { claude: 'fork-2', codex: 'thread-3' }); assert.deepEqual(manager.get().origin, origin, 'origin survives updates');
+  const both = { drafter: { provider: 'claude', id: 'fork-2' }, reviewer: { provider: 'codex', id: 'thread-3' } };
+  assert.deepEqual(manager.get().agentSessions, both); assert.deepEqual(manager.get().origin, origin, 'origin survives updates');
   await manager.flush(); await sleep(30);
   const reloaded = new SessionManager(new HistoryStore(dir)); await reloaded.load();
-  assert.deepEqual(reloaded.getConversation('a').origin, origin); assert.deepEqual(reloaded.getConversation('a').agentSessions, { claude: 'fork-2', codex: 'thread-3' });
+  assert.deepEqual(reloaded.getConversation('a').origin, origin); assert.deepEqual(reloaded.getConversation('a').agentSessions, both);
   assert.equal(parseStored({ id: 'b', task: 't', status: 'completed', messages: [], origin: { provider: 'other', sessionId: 'x' } }).origin, undefined, 'unknown providers are dropped');
   assert.equal(parseStored({ id: 'b', task: 't', status: 'completed', messages: [], agentSessions: { claude: 5 } }).agentSessions, undefined);
   const plain = manager.create('p', 'Plain', '/w', at(5));
@@ -204,4 +205,24 @@ test('titles are set at creation, renamed, reset when emptied, and saved', async
   assert.equal(reloaded.getConversation('a').title, 'Checkout flake');
   assert.ok(manager.setTitle('a', '   ')); assert.equal(manager.getConversation('a').title, 'Fix the flaky checkout test', 'empty name restores the automatic title');
   assert.equal(manager.setTitle('missing', 'x'), false);
+});
+test('conversations saved before seats load with Claude drafting and Codex reviewing', () => {
+  const old = parseStored({ id: 'o', task: 't', status: 'completed', messages: [{ role: 'user', content: 't', receivedAt: 'x' }, { role: 'claude', content: 'a', receivedAt: 'x', verdict: 'continue' }, { role: 'codex', content: 'b', receivedAt: 'x' }, { role: 'gremlin', content: '?', receivedAt: 'x' }], agentSessions: { claude: 'c1', codex: 'x1' } });
+  assert.deepEqual(old.messages.map(m => [m.role, m.agent && m.agent.provider, m.verdict]), [['user', undefined, undefined], ['drafter', 'claude', 'continue'], ['reviewer', 'codex', undefined]]);
+  assert.deepEqual(old.agentSessions, { drafter: { provider: 'claude', id: 'c1' }, reviewer: { provider: 'codex', id: 'x1' } });
+  assert.equal(old.seats, undefined, 'no seats stored: the view falls back to Claude and Codex');
+});
+test('seats and the agent on each message are saved and reloaded', async () => {
+  const dir = tmp();
+  const manager = new SessionManager(new HistoryStore(dir), 10);
+  const seats = { drafter: { provider: 'gemini', model: 'gemini-2.5-pro', label: 'gemini-2.5-pro' }, reviewer: { provider: 'claude', model: 'opus', label: 'Opus' } };
+  manager.create('s', 'Task', '/w', at(0), undefined, seats);
+  manager.update('s', st => receiveMessage(st, 's', { role: 'drafter', content: 'Draft', agent: seats.drafter }, at(1)), at(1));
+  const next = { drafter: seats.reviewer, reviewer: { provider: 'codex' } };
+  assert.ok(manager.setSeats('s', next)); assert.equal(manager.setSeats('nope', next), false);
+  await manager.flush(); await sleep(30);
+  const reloaded = new SessionManager(new HistoryStore(dir)); await reloaded.load();
+  const c = reloaded.getConversation('s');
+  assert.deepEqual(c.seats, next); assert.deepEqual(c.messages[0].agent, seats.drafter, 'the message keeps who wrote it after the seats change');
+  assert.equal(parseStored({ id: 'b', task: 't', status: 'completed', messages: [], seats: { drafter: { provider: 'claude' } } }).seats, undefined, 'both seats are needed');
 });

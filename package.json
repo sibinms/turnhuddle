@@ -1,8 +1,8 @@
 {
   "name": "turnhuddle",
   "displayName": "Turnhuddle",
-  "description": "Claude Code and Codex in one chat: Claude proposes, Codex reviews, and they keep going until both agree.",
-  "version": "0.2.7",
+  "description": "Claude Code, Codex and Gemini in one VS Code chat: pick any agent and model to draft, another to review, and they keep going until both agree.",
+  "version": "0.3.0",
   "publisher": "turnhuddle",
   "license": "MIT",
   "repository": {
@@ -22,8 +22,10 @@
   "keywords": [
     "claude",
     "codex",
+    "gemini",
     "ai",
     "agents",
+    "models",
     "code review",
     "chat",
     "pair programming"
@@ -50,7 +52,7 @@
       },
       {
         "command": "turnhuddle.start",
-        "title": "Start Claude ↔ Codex Conversation",
+        "title": "Start Conversation",
         "category": "Turnhuddle"
       },
       {
@@ -142,11 +144,43 @@
         "title": "Rename Conversation",
         "category": "Turnhuddle",
         "icon": "$(edit)"
+      },
+      {
+        "command": "turnhuddle.pickDrafter",
+        "title": "Choose the Drafter's Agent and Model",
+        "category": "Turnhuddle"
+      },
+      {
+        "command": "turnhuddle.pickReviewer",
+        "title": "Choose the Reviewer's Agent and Model",
+        "category": "Turnhuddle"
+      },
+      {
+        "command": "turnhuddle.swapSeats",
+        "title": "Swap Drafter and Reviewer",
+        "category": "Turnhuddle"
+      },
+      {
+        "command": "turnhuddle.pickAgent",
+        "title": "Choose Agent and Model",
+        "category": "Turnhuddle"
       }
     ],
     "configuration": {
       "title": "Turnhuddle",
       "properties": {
+        "turnhuddle.drafter": {
+          "type": "string",
+          "default": "claude",
+          "order": 0,
+          "markdownDescription": "Who drafts in new conversations: proposes an approach and revises it. `provider` or `provider:model`, e.g. `claude`, `claude:opus`, `codex:gpt-6.2-sol`, `gemini:gemini-2.5-pro`. Providers: `claude` (Claude Code), `codex` (Codex), `gemini` (Gemini CLI, preview). Easier: click the drafter's name under the chat's message box."
+        },
+        "turnhuddle.reviewer": {
+          "type": "string",
+          "default": "codex",
+          "order": 1,
+          "markdownDescription": "Who reviews in new conversations: critiques the drafter until both agree. Same format as `#turnhuddle.drafter#`. The same provider may take both seats, for example with two different models."
+        },
         "turnhuddle.claudePath": {
           "type": "string",
           "default": "claude",
@@ -158,6 +192,11 @@
           "default": "codex",
           "scope": "machine",
           "description": "Codex CLI executable. Leave as \"codex\" to find it automatically: on PATH, in common install folders, in your login shell's PATH, or bundled with the Codex (OpenAI) VS Code extension. Set a full path to override."
+        },
+        "turnhuddle.geminiPath": {
+          "type": "string",
+          "default": "gemini",
+          "markdownDescription": "Gemini CLI executable (preview support). Leave as `gemini` to find it on PATH, in common install folders or in your login shell's PATH. Set a full path to override. Install: https://github.com/google-gemini/gemini-cli"
         },
         "turnhuddle.timeoutSeconds": {
           "type": "number",
@@ -279,6 +318,10 @@
         },
         {
           "command": "turnhuddle.listVendorSessions",
+          "when": "false"
+        },
+        {
+          "command": "turnhuddle.pickAgent",
           "when": "false"
         }
       ]

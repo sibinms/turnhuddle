@@ -1,0 +1,33 @@
+{
+  "version": "0.3.0",
+  "date": "2026-11-26",
+  "headline": "Any agent, any model: pick who drafts and who reviews",
+  "pill": "any agent and model in either seat, and Gemini in preview",
+  "summary": "Turnhuddle is no longer just Claude and Codex. A conversation has two seats, a drafter and a reviewer, and each can be Claude Code, Codex or (in preview) the Gemini CLI, with any model you have. The picker lists the models found on your machine.",
+  "highlights": [
+    {
+      "tag": "New",
+      "title": "Choose the agent and model for each seat",
+      "text": "The two names under the message box are the seats. Click one for a picker like Claude Code's: every provider, the models found on your machine (the Codex models your account offers, Claude's aliases and the models you've used recently, Gemini's), **Other model…** for any id, and **Swap drafter and reviewer**. Seat the same provider twice with two models if you like. The choice applies to the open conversation and to new ones.",
+      "image": "models",
+      "alt": "The agent picker for the reviewer seat, listing Claude, Codex and Gemini models with the current choice checked, and Swap drafter and reviewer at the end"
+    },
+    {
+      "tag": "Changed",
+      "title": "Every message says which model wrote it",
+      "text": "Agent names in the chat include the model, in the provider's colour, so a conversation whose seats changed still shows who said what. Prompts introduce each agent by name and seat.",
+      "image": "chat",
+      "alt": "A Turnhuddle conversation between Claude Opus 5.5 and Codex GPT-6.2-Sol that ends with both agreeing"
+    }
+  ],
+  "improvements": [
+    "**Gemini CLI (preview).** Seat Gemini in either role once the `gemini` CLI is installed and signed in. It's built against the CLI's documented streaming output and tested with recorded output; please report how it works for you.",
+    "Built for more providers: each one is a single entry in a registry, so adding the next CLI doesn't touch the chat, history or prompts.",
+    "The composer is calmer: the seats, the mode and Send. The round status appears while a round runs, and each seat's tooltip shows its model and effort; **Effort and other settings…** is in the picker.",
+    "New commands: **Choose the Drafter's Agent and Model**, **Choose the Reviewer's Agent and Model** and **Swap Drafter and Reviewer**. New settings: `turnhuddle.drafter`, `turnhuddle.reviewer` and `turnhuddle.geminiPath`.",
+    "**Check CLI Installations** lists every provider, marking the ones you don't use as optional."
+  ],
+  "fixes": [
+    "Conversations from earlier versions open unchanged: Claude's messages are the drafter's and Codex's the reviewer's."
+  ]
+}

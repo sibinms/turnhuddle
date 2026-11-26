@@ -73,8 +73,9 @@ const steps = async (report, save) => {
   log('step 1: check');
   const check = await vscode.commands.executeCommand('turnhuddle.check');
   log('check:', check);
-  assert.equal(check.length, 3);
+  assert.equal(check.length, 4, 'one line per provider, then the sign-in note');
   assert.match(check[0], /^claude: \d+\.\d+\.\d+/); assert.match(check[1], /^codex: codex-cli \d+/);
+  assert.match(check[2], /^gemini: (\d|not found\. Optional: install the Gemini CLI)/, 'Gemini is optional while nobody seats it');
   report.steps.check = check;
   // 1b. With both paths left at their defaults the CLIs are found automatically (here: bundled in the vendor extensions,
   // since neither is on PATH on this machine) and a real round runs with them.
@@ -90,7 +91,7 @@ const steps = async (report, save) => {
     const auto = await vscode.commands.executeCommand('turnhuddle.start', { task: 'Reply with one short sentence naming a good variable name for a list of unique emails. Do not create or modify files.', source: 'sidebar' });
     report.steps.autoDetect = { detected, status: auto.status, error: auto.error, roles: auto.messages.map(m => m.role) };
     assert.equal(auto.status, 'completed', auto.error);
-    assert.deepEqual(auto.messages.map(m => m.role), ['user', 'claude', 'codex', 'claude']);
+    assert.deepEqual(auto.messages.map(m => m.role), ['user', 'drafter', 'reviewer', 'drafter']);
   } finally {
     await config.update('claudePath', claudePath, vscode.ConfigurationTarget.Global);
     await config.update('codexPath', codexPath, vscode.ConfigurationTarget.Global);
@@ -148,20 +149,21 @@ const steps = async (report, save) => {
   for (const message of result.messages) log(`[${result.id}] ${message.role} (${message.content.length} chars):\n${message.content}\n`);
   assert.equal(result.status, 'completed', result.error);
   assert.match(result.id, /^[0-9a-f-]{36}$/);
-  assert.deepEqual(result.messages.map(m => m.role), ['user', 'claude', 'codex', 'claude']);
+  assert.deepEqual(result.messages.map(m => m.role), ['user', 'drafter', 'reviewer', 'drafter']);
   assert.equal(result.messages[0].content, TASK);
   for (const message of result.messages.slice(1)) assert.ok(message.content.trim().length > 20, `${message.role} response too short`);
   assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
   assert.equal(snapshot(folder), before, 'workspace files changed during the conversation');
   // Sidebar state after the conversation, and the live sequence of updates it rendered on the way
   assert.equal(finalState.status, 'completed'); assert.equal(finalState.id, result.id); assert.equal(finalState.task, TASK); assert.equal(finalState.error, undefined);
-  assert.deepEqual(finalState.messages.map(m => ({ role: m.role, content: m.content })), result.messages, 'sidebar messages match the command result');
+  assert.deepEqual(finalState.messages.map(m => ({ role: m.role, content: m.content, agent: m.agent })), result.messages.map(m => ({ role: m.role, content: m.content, agent: m.agent })), 'sidebar messages match the command result');
+  assert.deepEqual(result.messages.slice(1).map(m => m.agent), [{ provider: 'claude' }, { provider: 'codex' }, { provider: 'claude' }], 'default seats: Claude drafts, Codex reviews');
   const times = [finalState.startedAt, ...finalState.messages.map(m => m.receivedAt), finalState.finishedAt];
   for (let i = 1; i < times.length; i++) assert.ok(times[i - 1] <= times[i], `timestamps out of order: ${times.join(' > ')}`);
   for (const time of times) assert.match(time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
-  assert.deepEqual(events.map(e => `${e.status}:${e.messages.join(',')}`), ['running:', 'running:user', 'running:user,claude', 'running:user,claude,codex', 'running:user,claude,codex,claude', 'completed:user,claude,codex,claude'], 'sidebar updated once per arrival');
+  assert.deepEqual(events.map(e => `${e.status}:${e.messages.join(',')}`), ['running:', 'running:user', 'running:user,drafter', 'running:user,drafter,reviewer', 'running:user,drafter,reviewer,drafter', 'completed:user,drafter,reviewer,drafter'], 'sidebar updated once per arrival');
   // Streaming: Claude's text grew in the panel before the message landed; Codex (no deltas in this CLI version) at least reported activity or its message.
-  const claudeStream = partials.filter(p => p.role === 'claude'); const codexStream = partials.filter(p => p.role === 'codex');
+  const claudeStream = partials.filter(p => p.role === 'drafter'); const codexStream = partials.filter(p => p.role === 'reviewer');
   assert.ok(claudeStream.length >= 5, `expected several Claude partial updates, got ${claudeStream.length}`);
   assert.ok(claudeStream.some(p => p.chars > 0 && p.chars < result.messages[1].content.length), 'Claude text was visible while incomplete');
   assert.ok(claudeStream.every((p, i, a) => i === 0 || a[i - 1].turn !== p.turn || p.chars >= a[i - 1].chars), 'partial text only grows within a turn');
@@ -182,11 +184,11 @@ const steps = async (report, save) => {
   for (const message of reply.messages) log(`[${reply.id}] ${message.role} (${message.content.length} chars):\n${message.content}\n`);
   assert.equal(reply.status, 'completed', reply.error);
   assert.equal(reply.id, result.id, 'reply continues the same conversation');
-  assert.deepEqual(reply.messages.map(m => m.role), ['user', 'claude', 'codex', 'claude'], 'one new round returned');
+  assert.deepEqual(reply.messages.map(m => m.role), ['user', 'drafter', 'reviewer', 'drafter'], 'one new round returned');
   assert.equal(reply.messages[0].content, FOLLOW_UP);
   assert.equal(replyState.status, 'completed'); assert.equal(replyState.id, result.id); assert.equal(replyState.task, TASK); assert.equal(replyState.partial, undefined, 'no partial text left after completion');
-  assert.deepEqual(replyState.messages.map(m => m.role), ['user', 'claude', 'codex', 'claude', 'user', 'claude', 'codex', 'claude'], 'panel shows both rounds');
-  assert.deepEqual(replyEvents, ['running:uccc', 'running:ucccu', 'running:ucccuc', 'running:ucccucc', 'running:ucccuccc', 'completed:ucccuccc'], 'panel updated once per arrival in the second round');
+  assert.deepEqual(replyState.messages.map(m => m.role), ['user', 'drafter', 'reviewer', 'drafter', 'user', 'drafter', 'reviewer', 'drafter'], 'panel shows both rounds');
+  assert.deepEqual(replyEvents, ['running:udrd', 'running:udrdu', 'running:udrdud', 'running:udrdudr', 'running:udrdudrd', 'completed:udrdudrd'], 'panel updated once per arrival in the second round');
   assert.ok(replyState.roundStartedAt > replyState.messages[3].receivedAt && replyState.roundStartedAt <= replyState.messages[4].receivedAt, 'round start sits between the rounds');
   assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
   assert.equal(snapshot(folder), before, 'workspace files changed during the follow-up');
@@ -237,7 +239,7 @@ const steps = async (report, save) => {
   assert.equal((await vscode.commands.executeCommand('turnhuddle.listSessions')).filter(s => s.status === 'running').length, 2, 'both listed as running');
   const both = await Promise.all(pair);
   report.steps.concurrent = { durationMs: Date.now() - concurrentStartedAt, runningIds, results: both.map(r => ({ status: r.status, id: r.id, error: r.error, roles: r.messages.map(m => m.role) })) };
-  for (const r of both) { assert.equal(r.status, 'completed', r.error); assert.deepEqual(r.messages.map(m => m.role), ['user', 'claude', 'codex', 'claude']); }
+  for (const r of both) { assert.equal(r.status, 'completed', r.error); assert.deepEqual(r.messages.map(m => m.role), ['user', 'drafter', 'reviewer', 'drafter']); }
   assert.notEqual(both[0].id, both[1].id); assert.deepEqual(new Set(runningIds), new Set(both.map(r => r.id)));
   assert.equal(api.runningIds().length, 0);
   list = await vscode.commands.executeCommand('turnhuddle.listSessions');
@@ -263,11 +265,11 @@ const steps = async (report, save) => {
   report.steps.continueFrom = { sessionId: created.session_id, codeword, status: continued.status, id: continued.id, error: continued.error, durationMs: Date.now() - continueStartedAt, messages: continued.messages, state: { origin: continuedState.origin, agentSessions: continuedState.agentSessions }, listed };
   for (const message of continued.messages) log(`[${continued.id}] ${message.role} (${message.content.length} chars):\n${message.content}\n`);
   assert.equal(continued.status, 'completed', continued.error);
-  assert.deepEqual(continued.messages.map(m => m.role), ['user', 'claude', 'codex', 'claude']);
+  assert.deepEqual(continued.messages.map(m => m.role), ['user', 'drafter', 'reviewer', 'drafter']);
   assert.ok(continued.messages[1].content.includes(codeword), `Claude recalled the codeword from the resumed session: ${continued.messages[1].content.slice(0, 200)}`);
   assert.deepEqual(continuedState.origin, { provider: 'claude', sessionId: created.session_id, title: listed.title });
-  assert.ok(continuedState.agentSessions && continuedState.agentSessions.claude && continuedState.agentSessions.claude !== created.session_id, 'Claude continued in a forked session, not the original');
-  assert.ok(continuedState.agentSessions.codex, 'Codex thread id recorded for later turns');
+  assert.ok(continuedState.agentSessions && continuedState.agentSessions.drafter && continuedState.agentSessions.drafter.provider === 'claude' && continuedState.agentSessions.drafter.id !== created.session_id, 'Claude continued in a forked session, not the original');
+  assert.ok(continuedState.agentSessions.reviewer && continuedState.agentSessions.reviewer.provider === 'codex', 'Codex thread id recorded for later turns');
   assert.equal((await vscode.commands.executeCommand('turnhuddle.listSessions')).find(s => s.id === continued.id).rounds, 1);
   assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
   assert.equal(snapshot(folder), before, 'workspace files changed during the continued conversation');
@@ -288,7 +290,7 @@ const steps = async (report, save) => {
     assert.equal(agreed.status, 'completed', agreed.error);
     const agents = agreed.messages.filter(m => m.role !== 'user');
     assert.ok(agents.length >= 2 && agents.length <= 6, `between 2 and 6 agent turns, got ${agents.length}`);
-    assert.deepEqual(agents.map(m => m.role), agents.map((_, i) => i % 2 === 0 ? 'claude' : 'codex'), 'agents alternate');
+    assert.deepEqual(agents.map(m => m.role), agents.map((_, i) => i % 2 === 0 ? 'drafter' : 'reviewer'), 'agents alternate');
     assert.ok(agents.every(m => m.verdict === 'agree' || m.verdict === 'continue'), `every agent turn carries a verdict: ${JSON.stringify(agents.map(m => m.verdict))}`);
     assert.ok(agents.every(m => !/VERDICT\s*:/i.test(m.content)), 'the verdict line is stripped from the shown text');
     assert.ok(agreedState.outcome && ['agreed', 'limit'].includes(agreedState.outcome.kind), `outcome recorded: ${JSON.stringify(agreedState.outcome)}`);
@@ -299,6 +301,33 @@ const steps = async (report, save) => {
     assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
     assert.equal(snapshot(folder), before, 'workspace files changed during the agreement round');
   } finally { await config.update('roundMode', 'fixed', vscode.ConfigurationTarget.Global); await config.update('maxTurnsPerRound', undefined, vscode.ConfigurationTarget.Global); }
+  // 10. Any agent and model in either seat: Codex drafts and Claude Haiku reviews, chosen through the picker command; the models list comes from this machine.
+  log('step 10: swapped seats with a chosen model'); save();
+  const codexModels = await api.models('codex'); const claudeModels = await api.models('claude');
+  report.steps.models = { codex: codexModels.map(m => m.id), claude: claudeModels.map(m => m.id) };
+  assert.ok(codexModels.length >= 2 && codexModels[0].id === '', `Codex models from its cache: ${JSON.stringify(report.steps.models.codex)}`);
+  assert.ok(claudeModels.some(m => m.id === 'haiku'), 'Claude aliases offered');
+  assert.equal(await vscode.commands.executeCommand('turnhuddle.clear'), true);
+  try {
+    assert.deepEqual(await vscode.commands.executeCommand('turnhuddle.pickAgent', 'drafter', 'codex'), { provider: 'codex' });
+    const reviewerSeat = await vscode.commands.executeCommand('turnhuddle.pickAgent', 'reviewer', 'claude:haiku');
+    assert.equal(reviewerSeat.provider, 'claude'); assert.equal(reviewerSeat.model, 'haiku');
+    assert.equal(vscode.workspace.getConfiguration('turnhuddle').get('drafter'), 'codex'); assert.equal(vscode.workspace.getConfiguration('turnhuddle').get('reviewer'), 'claude:haiku', 'the choice is saved for new conversations');
+    assert.deepEqual(api.seats().drafter, { provider: 'codex' });
+    const swapped = await vscode.commands.executeCommand('turnhuddle.reply', { message: 'In one sentence, name a good variable for a list of user ids. Do not create or modify files.', source: 'sidebar' });
+    const swappedState = await sameState();
+    report.steps.swapped = { status: swapped.status, error: swapped.error, messages: swapped.messages, seats: swappedState.seats };
+    for (const message of swapped.messages) log(`[${swapped.id}] ${message.role} ${message.agent ? JSON.stringify(message.agent) : ''}:\n${message.content}\n`);
+    assert.equal(swapped.status, 'completed', swapped.error);
+    assert.deepEqual(swapped.messages.map(m => [m.role, m.agent && m.agent.provider, m.agent && m.agent.model]), [['user', undefined, undefined], ['drafter', 'codex', undefined], ['reviewer', 'claude', 'haiku'], ['drafter', 'codex', undefined]]);
+    assert.deepEqual(swappedState.seats.reviewer.model, 'haiku', 'the conversation records its seats');
+    const history = await vscode.commands.executeCommand('turnhuddle.listSessions');
+    assert.ok(history.some(s => s.id === swapped.id));
+    assert.deepEqual(await vscode.commands.executeCommand('turnhuddle.swapSeats'), { drafter: swappedState.seats.reviewer, reviewer: swappedState.seats.drafter });
+    assert.equal(api.getState().seats.drafter.provider, 'claude', 'swapping changes the open conversation for its next round');
+    assert.equal(children().length, 0, `leftover children: ${JSON.stringify(children())}`);
+    assert.equal(snapshot(folder), before, 'workspace files changed during the swapped round');
+  } finally { await config.update('drafter', undefined, vscode.ConfigurationTarget.Global); await config.update('reviewer', undefined, vscode.ConfigurationTarget.Global); }
   report.finished = new Date().toISOString(); report.ok = true; save();
   log('all checks passed');
 };
