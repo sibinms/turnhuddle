@@ -90,3 +90,11 @@ export function loginShellLookup(shell = process.env.SHELL || '/bin/zsh', timeou
 export function defaultExtensionRoots(home: string): string[] {
   return ['.vscode', '.vscode-insiders', '.cursor', '.windsurf', '.vscode-oss'].map(d => join(home, d, 'extensions'));
 }
+
+/** Logo files shipped inside the vendor's own VS Code extension: [for light themes, for dark themes]. Undefined when absent. */
+export function vendorLogoFiles(agent: Agent, extensionDir: string): { light: string; dark: string } | undefined {
+  const pick = (...names: string[]) => names.map(n => join(extensionDir, 'resources', n)).find(p => { try { return statSync(p).isFile(); } catch { return false; } });
+  if (agent === 'claude') { const logo = pick('claude-logo.svg', 'claude-logo.png'); return logo ? { light: logo, dark: logo } : undefined; }
+  const light = pick('blossom-black.svg'); const dark = pick('blossom-white.svg');
+  return light && dark ? { light, dark } : undefined;
+}

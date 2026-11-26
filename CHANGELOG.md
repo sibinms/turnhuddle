@@ -2,6 +2,16 @@
 
 All notable changes to Turnhuddle are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 0.2.4 — 2026-11-26
+
+### Added
+- A chat header like Claude Code's: **Bookmark**, **History** and **New conversation**. History is a searchable list with bookmarked conversations first and *Continue from a Claude Code or Codex session…* at the end. Bookmarks are saved with the conversation.
+- Claude and Codex logos next to their messages, read from the Claude Code and Codex VS Code extensions installed on your machine (none are bundled). The OpenAI blossom follows light and dark themes. `turnhuddle.vendorLogos` turns this off; without those extensions, initials are shown as before.
+
+### Changed
+- Chat is the first view in the Turnhuddle sidebar; Conversations is below it, folded.
+- The state label in the header is now a coloured dot before the title.
+
 ## 0.2.3 — 2026-11-26
 
 ### Fixed

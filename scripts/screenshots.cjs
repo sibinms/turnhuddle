@@ -70,7 +70,7 @@ function agreedConversation() {
   s = view.receiveMessage(s, ID, { role: 'codex', content: X1, verdict: 'continue' }, at(-96));
   s = view.receiveMessage(s, ID, { role: 'claude', content: C2, verdict: 'agree' }, at(-74));
   s = view.receiveMessage(s, ID, { role: 'codex', content: X2, verdict: 'agree' }, at(-61));
-  return view.finishConversation(s, 'completed', at(-60), undefined, { kind: 'agreed', turns: 4 });
+  return { ...view.finishConversation(s, 'completed', at(-60), undefined, { kind: 'agreed', turns: 4 }), bookmarked: true };
 }
 function streamingConversation() {
   let s = view.startConversation(TASK, at(-58));
@@ -144,6 +144,15 @@ function quickPick(t) {
   return `<div class="qp"><div class="qp-title">Continue from a CLI session</div><div class="qp-input">Pick the Claude Code or Codex session to continue in Turnhuddle (Esc or click outside to close)</div>
   ${rows.map(([g, title, detail, sel]) => `<div class="qp-row${sel ? ' sel' : ''}">${svg(glyph[g], 16)}<div><div>${title}</div>${detail ? `<div class="qp-detail">${detail}</div>` : ''}</div></div>`).join('')}</div>`;
 }
+function historyPicker(t) {
+  const glyph = { bookmark: '<path d="M6 3h12v18l-6-4-6 4z"/>', chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/>', cont: '<path d="M8 5v14l11-7z"/>' };
+  const row = (g, title, detail, sel) => `<div class="qp-row${sel ? ' sel' : ''}">${svg(glyph[g], 16)}<div><div>${title}</div><div class="qp-detail">${detail}</div></div></div>`;
+  const sep = label => `<div class="qp-sep">${label}</div>`;
+  return `<div class="qp"><div class="qp-title">Conversation history</div><div class="qp-input">Search conversations</div>
+  ${sep('Bookmarked')}${row('bookmark', 'Add rate limiting to the POST /login endpoint in our Express API', '2 min ago · 1 round · agreed', true)}${row('bookmark', 'Choose a cache key scheme for product prices', '1 h ago · 2 rounds · agreed', false)}
+  ${sep('Recent')}${row('chat', 'Pick up where we left off: is the retry logic safe to ship?', 'just now · 1 round · running · from Claude Code', false)}${row('chat', 'Review the invoice PDF generator', 'yesterday · 1 round · failed', false)}
+  <div class="qp-rule"></div>${row('cont', 'Continue from a Claude Code or Codex session…', '', false).replace('<div class="qp-detail"></div>', '')}</div>`;
+}
 function emptyConversations(t, v) {
   return `<div class="sec"><span>${svg('<path d="m6 9 6 6 6-6"/>', 12, 2.4)}</span>CONVERSATIONS</div>
   <div class="welcome-view"><p>No conversations yet. Type a task in the Chat view below to start one.</p><div class="welcome-btn" style="background:${v['button-background']};color:${v['button-foreground']}">Continue from a Claude Code or Codex Session</div></div>`;
@@ -185,13 +194,15 @@ function windowPage(theme, panelFile, { tree, overlay, title = 'payments-api', e
   .qp-row{display:flex;gap:10px;align-items:flex-start;padding:6px 8px;border-radius:4px}
   .qp-row svg{margin-top:2px;flex:none;color:${v.descriptionForeground}}
   .qp-row.sel{background:${t.quickSel}}
+  .qp-sep{font-size:11px;color:${v.descriptionForeground};padding:6px 8px 2px;text-align:right;border-top:1px solid ${t.border};margin-top:4px}
+  .qp-rule{border-top:1px solid ${t.border};margin:4px 0}
   .qp-desc{color:${v.descriptionForeground};font-size:12px;margin-left:6px}.qp-detail{color:${v.descriptionForeground};font-size:12px;margin-top:2px}
   .spin svg{animation:none}
   </style></head><body><div class="win">
   <div class="title"><i></i><i></i><i></i><span>auth.ts — ${title}</span></div>
   <div class="body">
     <div class="act"><div>${svg(ICON.files)}</div><div>${svg(ICON.search)}</div><div>${svg(ICON.git)}</div><div>${svg(ICON.run)}</div><div>${svg(ICON.ext)}</div><div class="on">${svg(ICON.turnhuddle, 24, 1.8)}</div></div>
-    <div class="side"><div class="side-h">TURNHUDDLE</div>${empty ? emptyConversations(t, v) : tree ? conversationsTree(t, tree) : ''}<div class="sec" style="border-top:1px solid ${t.border}"><span>${svg('<path d="m6 9 6 6 6-6"/>', 12, 2.4)}</span>CHAT</div><div class="chat"><iframe src="${panelFile}"></iframe></div></div>
+    <div class="side"><div class="side-h">TURNHUDDLE</div><div class="sec" style="border-top:0"><span>${svg('<path d="m6 9 6 6 6-6"/>', 12, 2.4)}</span>CHAT</div><div class="chat"><iframe src="${panelFile}"></iframe></div>${empty ? emptyConversations(t, v) : tree ? conversationsTree(t, tree) : `<div class="sec"><span>${svg('<path d="m9 6 6 6-6 6"/>', 12, 2.4)}</span>CONVERSATIONS</div>`}</div>
     <div class="main">${editor(t)}</div>
   </div>
   ${overlay || ''}
@@ -212,7 +223,8 @@ const SCENES = {
   history: { state: continuedConversation, opts: { tree: TREE } },
   continue: { state: () => view.initialState(), opts: { tree: TREE.slice(1), overlay: quickPick } },
   welcome: { state: () => view.initialState(), opts: {} },
-  empty: { state: () => view.initialState(), opts: { empty: true } }
+  empty: { state: () => view.initialState(), opts: { empty: true } },
+  recents: { state: agreedConversation, opts: { overlay: historyPicker } }
 };
 
 fs.rmSync(WORK, { recursive: true, force: true });

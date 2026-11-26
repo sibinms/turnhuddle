@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { claudeAdapter, codexAdapter, ContextMode, Conversation, DEFAULT_MAX_TURNS, Effort, Message, relay, RoundMode, run, SessionOptions } from './bridge';
 import { ConversationState, finishConversation, MAX_TASK_CHARS, Origin, receiveMessage, receiveProgress, resumeConversation } from './conversationView';
-import { HistoryStore, SessionManager, SessionSummary, withAgentSession } from './sessions';
+import { historyEntries, HistoryStore, SessionManager, SessionSummary, withAgentSession } from './sessions';
 import { listVendorSessions, VendorSession } from './vendorSessions';
 import { conversationIdFrom, SessionsTreeProvider } from './sessionsTree';
 import { ConversationViewProvider } from './sidebar';
@@ -24,6 +24,8 @@ export interface TurnhuddleApi {
   listSessions(): SessionSummary[]; runningIds(): string[]; historyDir(): string;
   listVendorSessions(all?: boolean): Promise<VendorSession[]>;
   checkForUpdates(): Promise<UpdateCheck>;
+  /** Webview URIs of the logos the chat panel uses (empty until the panel has been shown). */
+  logoSources(): Record<string, string>;
 }
 const running = new Map<string, AbortController>();
 let sessionsRef: SessionManager | undefined;
@@ -192,6 +194,34 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
     if (running.has(id)) { void vscode.window.showInformationMessage('Stop the running round before archiving.'); return false; }
     return sessions.setArchived(id, true);
   });
+  /** Bookmarks the open conversation (or the given one), or removes its bookmark. Returns the new state. */
+  register('turnhuddle.toggleBookmark', (argument?: unknown, value?: unknown): boolean | undefined => {
+    const id = conversationIdFrom(argument) ?? sessions.selectedId();
+    const c = id ? sessions.getConversation(id) : undefined;
+    if (!id || !c) { void vscode.window.showInformationMessage('Open a conversation to bookmark it.'); return undefined; }
+    const next = typeof value === 'boolean' ? value : !c.bookmarked;
+    sessions.setBookmarked(id, next);
+    return next;
+  });
+  /** Claude Code-style history: bookmarked, then recent conversations; pick one to open it. */
+  register('turnhuddle.history', async (): Promise<string | undefined> => {
+    const age = (iso: string) => { const m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(iso).toLocaleDateString(); };
+    type Item = vscode.QuickPickItem & { id?: string; action?: 'continue' };
+    const items: Item[] = historyEntries([...sessions.list(), ...sessions.archived()]).map(entry => {
+      if (entry.kind === 'separator') return { label: entry.label, kind: vscode.QuickPickItemKind.Separator };
+      const c = entry.conversation;
+      const roundCount = c.messages.filter(m => m.role === 'user').length;
+      const state = running.has(c.id) ? 'running' : c.outcome?.kind === 'agreed' ? 'agreed' : c.outcome?.kind === 'limit' ? 'no agreement' : c.status;
+      const title = c.task.replace(/\s+/g, ' ').trim();
+      return { id: c.id, label: `$(${c.bookmarked ? 'bookmark' : 'comment-discussion'}) ${title.length > 72 ? `${title.slice(0, 71)}…` : title}`, detail: [age(c.updatedAt), `${roundCount} round${roundCount === 1 ? '' : 's'}`, state, c.origin ? `from ${c.origin.provider === 'claude' ? 'Claude Code' : 'Codex'}` : ''].filter(Boolean).join(' · '), picked: c.id === sessions.selectedId() };
+    });
+    items.push({ label: '', kind: vscode.QuickPickItemKind.Separator }, { label: '$(debug-continue) Continue from a Claude Code or Codex session…', action: 'continue', alwaysShow: true });
+    const picked = await vscode.window.showQuickPick(items, { title: 'Conversation history', placeHolder: sessions.list().length ? 'Search conversations' : 'No conversations yet', matchOnDetail: true });
+    if (!picked) return undefined;
+    if (picked.action === 'continue') { void vscode.commands.executeCommand('turnhuddle.continueFrom'); return undefined; }
+    if (picked.id) { sessions.select(picked.id); void view.reveal(); }
+    return picked.id;
+  });
   register('turnhuddle.restore', (argument?: unknown): boolean => { const id = conversationIdFrom(argument); return !!id && sessions.setArchived(id, false); });
   register('turnhuddle.refreshSessions', async (): Promise<number> => { await loaded; const count = await sessions.load(); tree.refresh(); return count; });
   register('turnhuddle.revealHistory', async (): Promise<string> => {
@@ -295,7 +325,8 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
     runningIds: () => [...running.keys()],
     historyDir: () => historyDir,
     listVendorSessions: all => vendorSessions(all),
-    checkForUpdates: () => runUpdateCheck(false)
+    checkForUpdates: () => runUpdateCheck(false),
+    logoSources: () => ({ ...view.logoSources }) as Record<string, string>
   };
 }
 export async function deactivate(): Promise<void> {

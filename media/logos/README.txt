@@ -1,10 +1,12 @@
-Official Claude and Codex logos are not bundled with Turnhuddle (they are Anthropic's and OpenAI's
-trademarks; check their brand guidelines before redistributing them).
+Turnhuddle does not bundle the Claude or OpenAI logos; they are trademarks of Anthropic and OpenAI.
 
-To show them in the sidebar, place SVG files named exactly:
+When the Claude Code and Codex (OpenAI) VS Code extensions are installed, Turnhuddle shows the logos
+those extensions ship, read from where they are installed on your machine (setting: turnhuddle.vendorLogos).
+
+To use other artwork, place SVG files named exactly
 
   claude.svg
   codex.svg
 
-in this folder (media/logos/ of the installed extension, or of this source tree when running from
-F5) and reopen the Turnhuddle view. Without them the view shows built-in initials in brand-like colours.
+in this folder (media/logos/ of the installed extension, or of the source tree when running from F5)
+and reopen the Turnhuddle view. Files here take precedence.

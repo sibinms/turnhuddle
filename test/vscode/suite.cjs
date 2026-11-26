@@ -51,7 +51,11 @@ const steps = async (report, save) => {
   log('step 0: sidebar view');
   await vscode.commands.executeCommand('turnhuddle.conversation.focus');
   await waitFor(() => api.isViewResolved(), 15000, 'sidebar webview to resolve');
-  report.steps.view = { resolved: api.isViewResolved(), visible: api.isViewVisible() };
+  report.steps.view = { resolved: api.isViewResolved(), visible: api.isViewVisible(), logos: api.logoSources() };
+  // The Claude Code and Codex extensions are installed on this machine, so their own logos are shown; none are bundled.
+  const logos = api.logoSources();
+  assert.match(logos.claude || '', /anthropic\.claude-code-.*claude-logo\.(svg|png)$/, `Claude logo from the Claude Code extension: ${JSON.stringify(logos)}`);
+  assert.match(logos.codex || '', /openai\.chatgpt-.*blossom-black\.svg$/); assert.match(logos.codexDark || '', /openai\.chatgpt-.*blossom-white\.svg$/);
   log('view:', report.steps.view);
   if (process.env.TURNHUDDLE_EXPECT_INSTALLED) assert.ok(!extension.extensionPath.endsWith('driver') && extension.extensionPath.includes('extensions'), `expected installed extension, got ${extension.extensionPath}`);
   log(`extension ${report.version} at ${extension.extensionPath}`);
@@ -212,6 +216,15 @@ const steps = async (report, save) => {
   await sleep(300); assert.equal(JSON.parse(fs.readFileSync(entry.file, 'utf8')).archived, true, 'archive flag saved');
   assert.ok(fs.existsSync(entry.file), 'archiving never deletes the file');
   assert.equal(await vscode.commands.executeCommand('turnhuddle.restore', result.id), true);
+  // Bookmarks, as set from the chat header
+  assert.equal(await vscode.commands.executeCommand('turnhuddle.open', result.id), true);
+  assert.equal(await vscode.commands.executeCommand('turnhuddle.toggleBookmark'), true);
+  assert.equal((await sameState()).bookmarked, true);
+  list = await vscode.commands.executeCommand('turnhuddle.listSessions');
+  assert.equal(list[0].id, result.id); assert.equal(list[0].bookmarked, true);
+  await sleep(300); assert.equal(JSON.parse(fs.readFileSync(entry.file, 'utf8')).bookmarked, true, 'bookmark saved');
+  assert.equal(await vscode.commands.executeCommand('turnhuddle.toggleBookmark', result.id), false);
+  assert.equal((await vscode.commands.executeCommand('turnhuddle.listSessions')).find(s => s.id === result.id).bookmarked, false);
   list = await vscode.commands.executeCommand('turnhuddle.listSessions');
   assert.equal(list.find(e => e.id === result.id).archived, false); assert.equal(list[0].id, result.id, 'restoring makes it the most recent again');
   report.steps.history = { entry, file: entry.file, savedMessages: saved.messages.length, historyDir: api.historyDir() };

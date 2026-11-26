@@ -49,3 +49,15 @@ test('loginShellLookup asks the shell and rejects odd names', async () => {
   assert.equal(await loginShellLookup(fakeShell)('bad; rm -rf'), undefined);
   assert.equal(await loginShellLookup(path.join(home, 'no-shell'))('mytool'), undefined);
 });
+const { vendorLogoFiles } = require('../dist/cliLocator');
+test('vendorLogoFiles finds the marks shipped inside the vendor extensions', () => {
+  const dir = tmp();
+  assert.equal(vendorLogoFiles('claude', dir), undefined); assert.equal(vendorLogoFiles('codex', dir), undefined);
+  fs.mkdirSync(path.join(dir, 'resources'));
+  fs.writeFileSync(path.join(dir, 'resources', 'claude-logo.svg'), '<svg/>');
+  fs.writeFileSync(path.join(dir, 'resources', 'blossom-black.svg'), '<svg/>');
+  assert.deepEqual(vendorLogoFiles('claude', dir), { light: path.join(dir, 'resources', 'claude-logo.svg'), dark: path.join(dir, 'resources', 'claude-logo.svg') });
+  assert.equal(vendorLogoFiles('codex', dir), undefined, 'needs both the light and dark blossom');
+  fs.writeFileSync(path.join(dir, 'resources', 'blossom-white.svg'), '<svg/>');
+  assert.deepEqual(vendorLogoFiles('codex', dir), { light: path.join(dir, 'resources', 'blossom-black.svg'), dark: path.join(dir, 'resources', 'blossom-white.svg') });
+});

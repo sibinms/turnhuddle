@@ -5,7 +5,7 @@ import type { RoundOutcome } from './bridge';
 import { AgentSessions, ConversationState, initialState, Origin, startConversation } from './conversationView';
 /** A conversation as kept in memory and on disk. Streamed partial text is never stored. */
 export interface StoredConversation extends ConversationState { id: string; task: string; cwd: string; createdAt: string; updatedAt: string; archived: boolean }
-export interface SessionSummary { id: string; title: string; status: ConversationState['status']; createdAt: string; updatedAt: string; archived: boolean; messages: number; rounds: number; cwd: string; file?: string }
+export interface SessionSummary { id: string; title: string; status: ConversationState['status']; createdAt: string; updatedAt: string; archived: boolean; bookmarked: boolean; messages: number; rounds: number; cwd: string; file?: string }
 const ROLES = new Set(['user', 'claude', 'codex']);
 const STATUSES = new Set(['idle', 'running', 'completed', 'cancelled', 'failed']);
 /** Validates a parsed JSON file. A conversation that was running when the window closed is recorded as failed. */
@@ -26,7 +26,7 @@ export function parseStored(value: unknown): StoredConversation | undefined {
   const interrupted = status === 'running' || status === 'idle';
   return {
     id: v.id, task: v.task, cwd: text('cwd') ?? '', createdAt: text('createdAt') ?? text('startedAt') ?? new Date(0).toISOString(), updatedAt: text('updatedAt') ?? text('finishedAt') ?? text('startedAt') ?? new Date(0).toISOString(),
-    archived: v.archived === true, status: interrupted ? 'failed' : status, messages,
+    archived: v.archived === true, ...(v.bookmarked === true ? { bookmarked: true } : {}), status: interrupted ? 'failed' : status, messages,
     startedAt: text('startedAt'), roundStartedAt: text('roundStartedAt'), finishedAt: text('finishedAt'),
     error: interrupted ? 'The window closed while this conversation was running.' : text('error'),
     ...(origin ? { origin } : {}), ...(agentSessions && Object.keys(agentSessions).length ? { agentSessions } : {}), ...(outcome && !interrupted ? { outcome } : {})
@@ -62,7 +62,7 @@ export class HistoryStore {
 }
 export function summarize(conversation: StoredConversation, file?: string): SessionSummary {
   const title = conversation.task.replace(/\s+/g, ' ').trim();
-  return { id: conversation.id, title: title.length > 80 ? `${title.slice(0, 79)}…` : title, status: conversation.status, createdAt: conversation.createdAt, updatedAt: conversation.updatedAt, archived: conversation.archived, messages: conversation.messages.length, rounds: conversation.messages.filter(m => m.role === 'user').length, cwd: conversation.cwd, file };
+  return { id: conversation.id, title: title.length > 80 ? `${title.slice(0, 79)}…` : title, status: conversation.status, createdAt: conversation.createdAt, updatedAt: conversation.updatedAt, archived: conversation.archived, bookmarked: conversation.bookmarked === true, messages: conversation.messages.length, rounds: conversation.messages.filter(m => m.role === 'user').length, cwd: conversation.cwd, file };
 }
 export type ListListener = () => void;
 /** All conversations of this window plus the one shown in the panel. Persists through a HistoryStore when one is given. */
@@ -85,8 +85,8 @@ export class SessionManager {
     this.notifyList();
     return this.sessions.size;
   }
-  /** Current conversations, newest activity first. */
-  list(): StoredConversation[] { return [...this.sessions.values()].filter(c => !c.archived).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); }
+  /** Current conversations: bookmarked first, then newest activity first. */
+  list(): StoredConversation[] { return [...this.sessions.values()].filter(c => !c.archived).sort((a, b) => Number(b.bookmarked === true) - Number(a.bookmarked === true) || b.updatedAt.localeCompare(a.updatedAt)); }
   archived(): StoredConversation[] { return [...this.sessions.values()].filter(c => c.archived).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); }
   summaries(): SessionSummary[] { return [...this.list(), ...this.archived()].map(c => summarize(c, this.store?.fileFor(c.id))); }
   getConversation(id: string): StoredConversation | undefined { return this.sessions.get(id); }
@@ -117,6 +117,15 @@ export class SessionManager {
     if (!updated.partial || current.partial === undefined) this.persist(id);
     if (id === this.selected) this.notifyState();
     if (!updated.partial) this.notifyList();
+  }
+  /** Marks a conversation as bookmarked (or not). Doesn't change its activity time. */
+  setBookmarked(id: string, bookmarked: boolean): boolean {
+    const current = this.sessions.get(id);
+    if (!current) return false;
+    const { bookmarked: _old, ...rest } = current;
+    this.sessions.set(id, bookmarked ? { ...rest, bookmarked: true } : rest);
+    this.persist(id, true); if (id === this.selected) this.notifyState(); this.notifyList();
+    return true;
   }
   setArchived(id: string, archived: boolean): boolean {
     const current = this.sessions.get(id);
@@ -155,4 +164,15 @@ export class SessionManager {
   lastError: string | undefined;
   private notifyState(): void { const state = this.get(); for (const listener of [...this.stateListeners]) listener(state); }
   private notifyList(): void { for (const listener of [...this.listListeners]) listener(); }
+}
+
+export type HistoryEntry = { kind: 'separator'; label: string } | { kind: 'conversation'; conversation: StoredConversation };
+/** The history list behind the chat header's clock: bookmarked conversations, then the rest, newest first; archived ones left out. */
+export function historyEntries(conversations: StoredConversation[]): HistoryEntry[] {
+  const live = conversations.filter(c => !c.archived).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const marked = live.filter(c => c.bookmarked), rest = live.filter(c => !c.bookmarked);
+  const out: HistoryEntry[] = [];
+  if (marked.length) out.push({ kind: 'separator', label: 'Bookmarked' }, ...marked.map(conversation => ({ kind: 'conversation', conversation }) as HistoryEntry));
+  if (rest.length) out.push({ kind: 'separator', label: 'Recent' }, ...rest.map(conversation => ({ kind: 'conversation', conversation }) as HistoryEntry));
+  return out;
 }

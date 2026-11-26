@@ -113,7 +113,7 @@ test('parseStored validates shape and drops bad messages; toStored strips partia
   assert.equal(parseStored({ id: 'a', task: 't', status: 'weird', messages: [] }).status, 'failed');
   assert.deepEqual(toStored({ id: 'a', task: 't', status: 'running', messages: [], cwd: '', createdAt: 'c', updatedAt: 'u', archived: false, partial: { role: 'claude', text: 'x' } }).partial, undefined);
   const summary = summarize({ id: 'a', task: 'Hello', status: 'completed', messages: [{ role: 'user', content: 'Hello', receivedAt: 'x' }], cwd: '/w', createdAt: 'c', updatedAt: 'u', archived: false }, '/f/a.json');
-  assert.deepEqual(summary, { id: 'a', title: 'Hello', status: 'completed', createdAt: 'c', updatedAt: 'u', archived: false, messages: 1, rounds: 1, cwd: '/w', file: '/f/a.json' });
+  assert.deepEqual(summary, { id: 'a', title: 'Hello', status: 'completed', createdAt: 'c', updatedAt: 'u', archived: false, bookmarked: false, messages: 1, rounds: 1, cwd: '/w', file: '/f/a.json' });
 });
 test('overlapping saves of one conversation never tear the file', async () => {
   const dir = tmp();
@@ -160,4 +160,26 @@ test('verdicts and the round outcome persist and reload; an interrupted round dr
   assert.equal(parseStored({ id: 'b', task: 't', status: 'completed', messages: [{ role: 'claude', content: 'x', receivedAt: 'r', verdict: 'maybe' }], outcome: { kind: 'agreed', turns: 'two' } }).outcome, undefined);
   assert.equal(parseStored({ id: 'b', task: 't', status: 'completed', messages: [{ role: 'claude', content: 'x', receivedAt: 'r', verdict: 'maybe' }] }).messages[0].verdict, undefined);
   assert.equal(parseStored({ id: 'b', task: 't', status: 'running', messages: [], outcome: { kind: 'agreed', turns: 2 } }).outcome, undefined, 'no outcome for a round that never finished');
+});
+const { historyEntries } = require('../dist/sessions');
+test('bookmarks: listed first, saved, kept through updates, and grouped in the history', async () => {
+  const dir = tmp();
+  const manager = new SessionManager(new HistoryStore(dir), 10);
+  manager.create('old', 'Old task', '/w', at(0)); manager.create('new', 'New task', '/w', at(100));
+  assert.deepEqual(manager.list().map(c => c.id), ['new', 'old']);
+  assert.ok(manager.setBookmarked('old', true));
+  assert.deepEqual(manager.list().map(c => c.id), ['old', 'new'], 'bookmarked first');
+  manager.update('old', s => receiveMessage(s, 'old', { role: 'user', content: 'Old task' }, at(200)), at(200));
+  assert.equal(manager.getConversation('old').bookmarked, true, 'kept through updates');
+  assert.equal(manager.summaries().find(s => s.id === 'old').bookmarked, true);
+  await manager.flush(); await sleep(30);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'old.json'), 'utf8')).bookmarked, true);
+  const reloaded = new SessionManager(new HistoryStore(dir)); await reloaded.load();
+  assert.equal(reloaded.getConversation('old').bookmarked, true); assert.equal(reloaded.getConversation('new').bookmarked, undefined);
+  assert.ok(manager.setBookmarked('old', false)); assert.ok(!('bookmarked' in manager.getConversation('old')));
+  assert.equal(manager.setBookmarked('missing', true), false);
+  manager.setBookmarked('new', true); manager.create('third', 'Third', '/w', at(300)); manager.setArchived('third', true);
+  const entries = historyEntries([...manager.list(), ...manager.archived()]);
+  assert.deepEqual(entries.map(e => e.kind === 'separator' ? `[${e.label}]` : e.conversation.id), ['[Bookmarked]', 'new', '[Recent]', 'old'], 'archived conversations stay out of the history');
+  assert.deepEqual(historyEntries([]), []);
 });

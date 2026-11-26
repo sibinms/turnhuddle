@@ -1,0 +1,25 @@
+{
+  "version": "0.2.4",
+  "date": "2026-11-26",
+  "headline": "Feels like Claude Code: bookmarks, history and logos",
+  "pill": "a Claude Code-style header with bookmarks and history",
+  "summary": "The chat header now works like Claude Code's: bookmark a conversation, open your history from the clock, start a new chat from the bubble. Replies carry each agent's own logo when the Claude Code and Codex extensions are installed.",
+  "highlights": [
+    {
+      "tag": "New",
+      "title": "Bookmarks and history, one click away",
+      "text": "Bookmark the conversation you're in from the header. The clock opens your history, searchable, with bookmarked conversations at the top and each one's age, rounds and outcome; it also offers **Continue from a Claude Code or Codex session\u2026**. The speech bubble starts a new conversation. Chat is now the first view in the Turnhuddle sidebar, with the Conversations list folded underneath.",
+      "image": "recents",
+      "alt": "The conversation history open over the Turnhuddle chat, with two bookmarked conversations above two recent ones"
+    },
+    {
+      "tag": "New",
+      "title": "The agents' own logos",
+      "text": "Turnhuddle shows the logos that the Claude Code and Codex extensions already ship, read from where those extensions are installed on your machine; it doesn't include them itself. The OpenAI blossom switches between black and white to suit light and dark themes. Without those extensions, or with `turnhuddle.vendorLogos` off, you see initials as before."
+    }
+  ],
+  "improvements": [
+    "The conversation's state is a small coloured dot before its title; hover it for the name.",
+    "Bookmarked conversations show \ud83d\udd16 in the Conversations list and stay at its top."
+  ]
+}

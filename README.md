@@ -55,7 +55,7 @@ Claude's reply streams in as it's written, with a live status like *Noodling… 
   <img src="https://sibinms.github.io/turnhuddle/screenshots/continue-light.png" alt="A picker listing recent Claude Code and Codex sessions over the Turnhuddle conversations list" width="900" />
 </picture>
 
-Conversations are saved on your machine and listed with their state. Reopen any of them, run several at once, archive instead of delete. Started something in the Claude Code or Codex CLI? Pick that session and continue it here, with everything the agent already knows.
+Conversations are saved on your machine. The chat header works like Claude Code's: **bookmark** the one you're in, open your **history** from the clock (bookmarked first, searchable), or start a **new** one. Run several at once, archive instead of delete. Started something in the Claude Code or Codex CLI? Pick that session and continue it here, with everything the agent already knows.
 
 ### And more
 
@@ -83,6 +83,7 @@ Turnhuddle finds the CLIs by itself: on your PATH, in common install folders, or
 | `turnhuddle.claudePath`, `turnhuddle.codexPath` | `claude`, `codex` | Leave as is to find the CLIs automatically, or set a full path. |
 | `turnhuddle.timeoutSeconds` | `180` | Per-turn time limit. |
 | `turnhuddle.checkForUpdates` | `true` | Daily check for a newer release on GitHub. |
+| `turnhuddle.vendorLogos` | `true` | Show the Claude and Codex logos from their installed VS Code extensions. |
 
 ## Commands
 
@@ -108,7 +109,7 @@ Details: [privacy](https://sibinms.github.io/turnhuddle/privacy.html).
 
 - Every turn replays the conversation to the CLI, so long conversations cost more per round.
 - Tested on macOS. Windows and Linux should work but aren't verified.
-- The official Claude and Codex logos aren't bundled; the avatars are initials. You can drop the logos into `media/logos/` yourself (see `media/logos/README.txt`).
+- Turnhuddle doesn't bundle the Claude or OpenAI logos, which belong to Anthropic and OpenAI. When the Claude Code and Codex VS Code extensions are installed, it shows the logos those extensions ship, from where they're installed on your machine; otherwise it shows initials. Turn this off with `turnhuddle.vendorLogos`.
 
 ## Contributing
 

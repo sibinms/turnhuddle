@@ -44,7 +44,7 @@ export class SessionsTreeProvider implements vscode.TreeDataProvider<Node> {
     const status = running ? 'running' : c.status;
     const selected = this.sessions.selectedId() === c.id;
     item.id = c.id;
-    item.description = `${status === 'running' ? 'running' : status}${c.messages.length ? ` · ${c.messages.filter(m => m.role === 'user').length} round${c.messages.filter(m => m.role === 'user').length === 1 ? '' : 's'}` : ''} · ${relative(c.updatedAt)}${selected ? ' · open' : ''}`;
+    item.description = `${c.bookmarked ? '🔖 ' : ''}${status === 'running' ? 'running' : status}${c.messages.length ? ` · ${c.messages.filter(m => m.role === 'user').length} round${c.messages.filter(m => m.role === 'user').length === 1 ? '' : 's'}` : ''} · ${relative(c.updatedAt)}${selected ? ' · open' : ''}`;
     item.iconPath = new vscode.ThemeIcon(STATUS_ICONS[status], status === 'failed' ? new vscode.ThemeColor('testing.iconFailed') : status === 'completed' ? new vscode.ThemeColor('testing.iconPassed') : undefined);
     item.tooltip = new vscode.MarkdownString(`**${title || 'Untitled'}**\n\n${status} · ${c.messages.length} messages\n\nStarted ${new Date(c.createdAt).toLocaleString()}\n\nFolder: ${c.cwd || '(none)'}\n\nID: \`${c.id}\``);
     item.contextValue = c.archived ? 'turnhuddle.archived' : running ? 'turnhuddle.running' : 'turnhuddle.conversation';

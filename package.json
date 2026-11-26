@@ -2,7 +2,7 @@
   "name": "turnhuddle",
   "displayName": "Turnhuddle",
   "description": "Claude Code and Codex in one chat: Claude proposes, Codex reviews, and they keep going until both agree.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publisher": "turnhuddle",
   "license": "MIT",
   "repository": {
@@ -68,7 +68,7 @@
         "command": "turnhuddle.clear",
         "title": "New Conversation",
         "category": "Turnhuddle",
-        "icon": "$(add)"
+        "icon": "$(comment-discussion)"
       },
       {
         "command": "turnhuddle.getState",
@@ -124,6 +124,18 @@
         "command": "turnhuddle.checkForUpdates",
         "title": "Check for Updates",
         "category": "Turnhuddle"
+      },
+      {
+        "command": "turnhuddle.history",
+        "title": "Conversation History",
+        "category": "Turnhuddle",
+        "icon": "$(history)"
+      },
+      {
+        "command": "turnhuddle.toggleBookmark",
+        "title": "Bookmark Conversation",
+        "category": "Turnhuddle",
+        "icon": "$(bookmark)"
       }
     ],
     "configuration": {
@@ -204,6 +216,11 @@
           "type": "boolean",
           "default": true,
           "description": "Check GitHub once a day for a newer Turnhuddle release and offer to install it. Installs from the Marketplace are also updated by VS Code itself."
+        },
+        "turnhuddle.vendorLogos": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Claude and Codex logos next to their messages, read from the Claude Code and Codex VS Code extensions installed on this machine (Turnhuddle doesn't bundle them). Off, or when those extensions aren't installed: initials are shown."
         }
       }
     },
@@ -219,16 +236,16 @@
     "views": {
       "turnhuddle": [
         {
-          "id": "turnhuddle.sessions",
-          "name": "Conversations",
-          "contextualTitle": "Turnhuddle",
-          "visibility": "collapsed"
-        },
-        {
           "type": "webview",
           "id": "turnhuddle.conversation",
           "name": "Chat",
           "contextualTitle": "Turnhuddle"
+        },
+        {
+          "id": "turnhuddle.sessions",
+          "name": "Conversations",
+          "contextualTitle": "Turnhuddle",
+          "visibility": "collapsed"
         }
       ]
     },

@@ -13,9 +13,10 @@ export interface Origin { provider: 'claude' | 'codex'; sessionId: string; title
 /** CLI session ids each agent keeps for this conversation, so later turns resume instead of replaying. */
 export type AgentSessions = Partial<Record<'claude' | 'codex', string>>;
 /** The conversation shown in the panel. All times are ISO strings. */
-export interface ConversationState { status: Status; task?: string; id?: string; startedAt?: string; roundStartedAt?: string; finishedAt?: string; error?: string; messages: ViewMessage[]; partial?: PartialMessage; origin?: Origin; agentSessions?: AgentSessions; outcome?: RoundOutcome }
-/** Optional webview URIs for official logos dropped into media/logos/ (see README). Absent: the built-in glyphs are used. */
-export type Logos = Partial<Record<'claude' | 'codex', string>>;
+export interface ConversationState { bookmarked?: boolean; status: Status; task?: string; id?: string; startedAt?: string; roundStartedAt?: string; finishedAt?: string; error?: string; messages: ViewMessage[]; partial?: PartialMessage; origin?: Origin; agentSessions?: AgentSessions; outcome?: RoundOutcome }
+/** Optional webview URIs for the agents' logos, read from the user's own Claude Code / Codex extensions or media/logos/.
+ * `…Dark` variants are used under dark themes. Absent: the built-in initials are used. */
+export type Logos = Partial<Record<'claude' | 'codex' | 'claudeDark' | 'codexDark', string>>;
 export const ROLE_LABELS: Record<Role, string> = { user: 'You', claude: 'Claude', codex: 'Codex' };
 export const STATUS_LABELS: Record<Status, string> = { idle: 'Ready', running: 'Running', completed: 'Completed', cancelled: 'Stopped', failed: 'Failed' };
 /** Label for the state dot: a completed agreement round says so. */
@@ -127,6 +128,8 @@ export function thinkingLabel(word: string, elapsedSeconds: number): string {
 /** Built-in avatar glyphs: plain initials in brand-ish colours. Official marks are not bundled (trademark); drop SVGs into media/logos/ instead. */
 export function avatar(role: Role, logos: Logos = {}): string {
   const logo = role === 'user' ? undefined : logos[role];
+  const dark = role === 'user' ? undefined : logos[`${role}Dark`];
+  if (logo && dark && dark !== logo) return `<img class="avatar avatar-${role} logo-light" src="${escapeHtml(logo)}" alt="${escapeHtml(ROLE_LABELS[role])}"><img class="avatar avatar-${role} logo-dark" src="${escapeHtml(dark)}" alt="${escapeHtml(ROLE_LABELS[role])}">`;
   if (logo) return `<img class="avatar avatar-${role}" src="${escapeHtml(logo)}" alt="${escapeHtml(ROLE_LABELS[role])}">`;
   const glyph = role === 'user'
     ? '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="3" fill="currentColor"/><path d="M2.5 14a5.5 5.5 0 0 1 11 0Z" fill="currentColor"/></svg>'
@@ -138,14 +141,22 @@ const ICONS = {
   copy: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M10.5 5.5V3.5A1 1 0 0 0 9.5 2.5h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" stroke="currentColor" stroke-width="1.3" fill="none"/></svg>',
   send: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>',
   history: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9M2.5 2.5v2.6h2.6M8 5v3.3l2.2 1.3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>',
-  stop: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor"/></svg>'
+  stop: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor"/></svg>',
+  bookmark: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.5h7a.5.5 0 0 1 .5.5v10.6l-4-2.6-4 2.6V3a.5.5 0 0 1 .5-.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" fill="none"/></svg>',
+  bookmarked: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.5h7a.5.5 0 0 1 .5.5v10.6l-4-2.6-4 2.6V3a.5.5 0 0 1 .5-.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" fill="currentColor"/></svg>',
+  newChat: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5a5.5 5.5 0 0 1 0 11c-.9 0-1.8-.2-2.6-.6L2.5 13.5l.7-2.7A5.5 5.5 0 0 1 8 2.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" fill="none"/><path d="M8 5.8v4.4M5.8 8h4.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>'
 };
-/** Title row: task excerpt, state, the conversation list and the New action. The conversation ID lives in the title's tooltip. */
+/** Title row, laid out like Claude Code's: a state dot, the title, then Bookmark, History and New conversation.
+ * The state's name is in the dot's tooltip and read out to screen readers; the conversation ID is in the title's tooltip. */
 export function renderHeader(state: ConversationState): string {
+  const idle = state.status === 'idle';
   const tooltip = state.id ? `Conversation ${state.id}` : 'No conversation yet';
-  const title = state.status === 'idle' ? 'Turnhuddle' : conversationTitle(state);
-  const origin = state.origin && state.status !== 'idle' ? `<span class="origin" title="${escapeHtml(`Continued from ${ROLE_LABELS[state.origin.provider]} session ${state.origin.sessionId}: ${state.origin.title}`)}">from ${escapeHtml(ROLE_LABELS[state.origin.provider])}</span>` : '';
-  return `<header class="top status-${state.status}${state.outcome ? ` outcome-${state.outcome.kind}` : ''}"><span class="title" title="${escapeHtml(tooltip)}">${escapeHtml(title)}</span>${origin}<span class="state"><i class="dot" aria-hidden="true"></i>${escapeHtml(statusLabel(state))}</span><button class="icon" type="button" data-command="history" title="Conversations">${ICONS.history}</button><button class="icon" type="button" data-command="new" title="New conversation"${state.status === 'idle' ? ' disabled' : ''}>${ICONS.plus}</button></header>`;
+  const title = idle ? 'Turnhuddle' : conversationTitle(state);
+  const label = statusLabel(state);
+  const origin = state.origin && !idle ? `<span class="origin" title="${escapeHtml(`Continued from ${ROLE_LABELS[state.origin.provider]} session ${state.origin.sessionId}: ${state.origin.title}`)}">from ${escapeHtml(ROLE_LABELS[state.origin.provider])}</span>` : '';
+  const dot = idle ? '' : `<span class="state" title="${escapeHtml(label)}"><i class="dot" aria-hidden="true"></i><span class="sr">${escapeHtml(label)}</span></span>`;
+  const bookmark = `<button class="icon bookmark${state.bookmarked ? ' on' : ''}" type="button" data-command="bookmark" title="${state.bookmarked ? 'Remove bookmark' : 'Bookmark this conversation'}" aria-pressed="${state.bookmarked ? 'true' : 'false'}"${idle ? ' disabled' : ''}>${state.bookmarked ? ICONS.bookmarked : ICONS.bookmark}</button>`;
+  return `<header class="top status-${state.status}${state.outcome ? ` outcome-${state.outcome.kind}` : ''}">${dot}<span class="title" title="${escapeHtml(tooltip)}">${escapeHtml(title)}</span>${origin}${bookmark}<button class="icon" type="button" data-command="history" title="Conversation history">${ICONS.history}</button><button class="icon" type="button" data-command="new" title="New conversation"${idle ? ' disabled' : ''}>${ICONS.newChat}</button></header>`;
 }
 /** Values the static shell needs for its toolbar; sent alongside the HTML on every render. */
 export interface RenderMeta { status: Status; stage: number; round: number; turn: number; roundStartedAt?: string; finishedAt?: string; startedAt?: string; outcome?: RoundOutcome }
@@ -198,7 +209,11 @@ button:disabled { cursor: default; opacity: 0.4; }
 #root { flex: 1 1 auto; overflow-y: auto; padding: 0 14px 12px; }
 .top { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 9px 0 8px; margin: 0 0 6px; background: var(--vscode-sideBar-background, inherit); border-bottom: 1px solid var(--th-border); }
 .top .title { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.top .state { display: inline-flex; align-items: center; gap: 5px; font-size: 0.82em; color: var(--th-muted); white-space: nowrap; }
+.top { gap: 6px; }
+.top .state { display: inline-flex; align-items: center; flex: none; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.top .icon { width: 26px; height: 26px; } .top .icon svg { width: 16px; height: 16px; }
+.top .bookmark.on { color: var(--vscode-foreground); }
 .top .origin { flex: none; padding: 1px 7px; border-radius: 9px; background: var(--th-surface); border: 1px solid var(--th-border); font-size: 0.74em; color: var(--th-muted); white-space: nowrap; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--th-muted); }
 .status-running .dot { background: var(--vscode-progressBar-background, #0e70c0); animation: pulse-dot 1.2s ease-in-out infinite; }
@@ -225,6 +240,9 @@ button:disabled { cursor: default; opacity: 0.4; }
 .avatar-user { background: var(--th-accent); color: var(--th-accent-fg); } .avatar-user svg { width: 12px; height: 12px; }
 .avatar-claude { background: var(--th-claude); } .avatar-codex { background: var(--th-codex); }
 img.avatar { background: transparent; padding: 1px; }
+img.logo-dark { display: none; }
+body.vscode-dark img.logo-light, body.vscode-high-contrast:not(.vscode-high-contrast-light) img.logo-light { display: none; }
+body.vscode-dark img.logo-dark, body.vscode-high-contrast:not(.vscode-high-contrast-light) img.logo-dark { display: inline-flex; }
 .msg-claude .content, .msg-codex .content { padding-left: 27px; }
 .content > :first-child { margin-top: 0; } .content > :last-child { margin-bottom: 0; }
 .content p, .content ul, .content ol, .content blockquote, .content table, .content pre { margin: 0 0 10px; }
@@ -364,6 +382,7 @@ body[data-status="running"] #stop { display: inline-flex; } body[data-status="ru
     if (!button || button.disabled) return;
     if (button.dataset.command === 'new') vscode.postMessage({ command: 'new' });
     else if (button.dataset.command === 'history') vscode.postMessage({ command: 'history' });
+    else if (button.dataset.command === 'bookmark') vscode.postMessage({ command: 'bookmark' });
     else if (button.dataset.command === 'copy') vscode.postMessage({ command: 'copy', index: Number(button.dataset.index) });
   });
   vscode.postMessage({ command: 'ready' });

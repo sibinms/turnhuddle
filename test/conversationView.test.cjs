@@ -82,23 +82,27 @@ test('title, stage and meta derive from the state', () => {
   assert.deepEqual(renderMeta(state), { status: 'running', stage: 0, round: 1, turn: 3, roundStartedAt: t0.toISOString(), finishedAt: undefined, startedAt: t0.toISOString() });
   assert.deepEqual(renderMeta(initialState()), { status: 'idle', stage: -1, round: 0, turn: 0, roundStartedAt: undefined, finishedAt: undefined, startedAt: undefined });
 });
-test('idle render is a welcome screen under the title row, with New disabled and no thread', () => {
+test('idle render is a welcome screen under the title row, with Bookmark and New disabled and no thread', () => {
   const html = renderConversation(initialState());
-  assert.match(html, /^<header class="top status-idle"><span class="title" title="No conversation yet">Turnhuddle<\/span><span class="state"><i class="dot" aria-hidden="true"><\/i>Ready<\/span><button class="icon" type="button" data-command="history" title="Conversations">.*?<\/button><button class="icon" type="button" data-command="new" title="New conversation" disabled>/);
+  assert.match(html, /^<header class="top status-idle"><span class="title" title="No conversation yet">Turnhuddle<\/span><button class="icon bookmark" type="button" data-command="bookmark" title="Bookmark this conversation" aria-pressed="false" disabled>.*?<\/button><button class="icon" type="button" data-command="history" title="Conversation history">.*?<\/button><button class="icon" type="button" data-command="new" title="New conversation" disabled>/);
+  assert.doesNotMatch(html, /class="state"/, 'no state dot before a conversation exists');
   assert.match(html, /<section class="welcome">/); assert.match(html, /<h1>Claude ↔ Codex<\/h1>/); assert.match(html, /Describe a task below/);
   assert.match(html, /avatar-claude.*avatar-codex/s, 'both marks shown');
   assert.doesNotMatch(html, /<article/); assert.doesNotMatch(html, /thinking/);
-  assert.equal(count(html, /<button/g), 2, 'only the Conversations and New buttons');
+  assert.equal(count(html, /<button/g), 3, 'only Bookmark, History and New');
 });
-test('title row shows the task excerpt, state, ID tooltip and New only when finished', () => {
+test('title row: state dot, title with ID tooltip, then Bookmark, History and New like Claude Code', () => {
   const state = receiveMessage(startConversation('Propose a dedupe function', t0), ID, { role: 'user', content: 'Propose a dedupe function' }, t0);
   let header = renderHeader(state);
-  assert.match(header, /^<header class="top status-running"><span class="title" title="Conversation 4652f392-1c6f-4669-8ea1-c3e6a80175ff">Propose a dedupe function<\/span>/);
-  assert.match(header, /<i class="dot" aria-hidden="true"><\/i>Running</); assert.match(header, /data-command="new" title="New conversation">/, 'New stays available while running: it opens a fresh conversation, this one keeps running');
-  assert.match(header, /data-command="history" title="Conversations">/);
+  assert.match(header, /^<header class="top status-running"><span class="state" title="Running"><i class="dot" aria-hidden="true"><\/i><span class="sr">Running<\/span><\/span><span class="title" title="Conversation 4652f392-1c6f-4669-8ea1-c3e6a80175ff">Propose a dedupe function<\/span>/);
+  assert.deepEqual(header.match(/data-command="(\w+)"/g), ['data-command="bookmark"', 'data-command="history"', 'data-command="new"'], 'buttons in Claude Code order');
+  assert.match(header, /data-command="new" title="New conversation">/, 'New stays available while running: it opens a fresh conversation, this one keeps running');
+  assert.match(header, /data-command="bookmark" title="Bookmark this conversation" aria-pressed="false">/);
+  const marked = renderHeader({ ...state, bookmarked: true });
+  assert.match(marked, /class="icon bookmark on" type="button" data-command="bookmark" title="Remove bookmark" aria-pressed="true">/); assert.match(marked, /fill="currentColor"\/><\/svg><\/button>/, 'filled bookmark');
   header = renderHeader(finishConversation(state, 'completed', at(95)));
-  assert.match(header, /status-completed/); assert.match(header, /Completed</); assert.doesNotMatch(header, /disabled/);
-  assert.match(renderHeader(finishConversation(state, 'cancelled', at(95), 'x')), /Stopped</);
+  assert.match(header, /status-completed/); assert.match(header, /title="Completed"/); assert.doesNotMatch(header, /disabled/);
+  assert.match(renderHeader(finishConversation(state, 'cancelled', at(95), 'x')), /<span class="sr">Stopped<\/span>/);
   const full = renderConversation(finishConversation(state, 'completed', at(95)));
   assert.equal(count(full, new RegExp(ID, 'g')), 1, 'full ID appears once, in the tooltip');
 });
@@ -277,7 +281,7 @@ test('verdicts and the round outcome are rendered, and alternate-turn rounds dri
   const agreed = finishConversation(state, 'completed', at(41), undefined, { kind: 'agreed', turns: 4 });
   assert.deepEqual(agreed.outcome, { kind: 'agreed', turns: 4 }); assert.equal(statusLabel(agreed), 'Agreed');
   html = renderConversation(agreed);
-  assert.match(html, /<header class="top status-completed outcome-agreed">/); assert.match(html, /<\/i>Agreed</);
+  assert.match(html, /<header class="top status-completed outcome-agreed">/); assert.match(html, /<span class="sr">Agreed<\/span>/);
   assert.match(html, /<p class="done done-agreed">Round 1 · both agreed after 4 turns · 41s<\/p>$/);
   assert.deepEqual(renderMeta(agreed).outcome, { kind: 'agreed', turns: 4 }); assert.equal(renderMeta(agreed).turn, 4);
   const limit = finishConversation(state, 'completed', at(41), undefined, { kind: 'limit', turns: 10 });
@@ -294,4 +298,11 @@ test('page shows the alternating relay with a turn counter', () => {
   const html = renderPage('n', 'src:');
   assert.match(html, /<span data-stage="0">Claude<\/span><i>⇄<\/i><span data-stage="1">Codex<\/span><span id="turn" class="turn"><\/span>/);
   assert.match(html, /'· turn ' \+ meta\.turn/); assert.match(html, /maxTurns/);
+});
+test('logos with a dark variant render both images, switched by the VS Code theme class', () => {
+  const html = avatar('codex', { codex: 'u/blossom-black.svg', codexDark: 'u/blossom-white.svg' });
+  assert.equal(html, '<img class="avatar avatar-codex logo-light" src="u/blossom-black.svg" alt="Codex"><img class="avatar avatar-codex logo-dark" src="u/blossom-white.svg" alt="Codex">');
+  assert.equal(avatar('claude', { claude: 'u/c.svg', claudeDark: 'u/c.svg' }), '<img class="avatar avatar-claude" src="u/c.svg" alt="Claude">', 'one image when both variants are the same file');
+  const page = renderPage('n', 'src:');
+  assert.match(page, /img\.logo-dark \{ display: none; \}/); assert.match(page, /body\.vscode-dark img\.logo-light/);
 });

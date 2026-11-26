@@ -1,7 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import * as vscode from 'vscode';
+import { homedir } from 'node:os';
 import { ConversationState, Logos, renderConversation, renderMeta, renderPage } from './conversationView';
+import { defaultExtensionRoots, newestExtensionDir, vendorLogoFiles } from './cliLocator';
+const VENDOR_EXTENSIONS = { claude: 'anthropic.claude-code', codex: 'openai.chatgpt' } as const;
 /** What the panel needs from the session manager: the selected conversation's state and change notifications. */
 export interface StateSource { get(): ConversationState; subscribe(listener: (state: ConversationState) => void): () => void }
 export const VIEW_ID = 'turnhuddle.conversation';
@@ -12,7 +15,7 @@ export function effortLabel(): string {
   const codex = config.get<string>('codexReasoningEffort', 'medium'); const claude = config.get<string>('claudeEffort', 'inherit');
   return `Codex ${codex}${claude !== 'inherit' ? ` · Claude ${claude}` : ''}`;
 }
-/** Official logos are not bundled. Drop `claude.svg` / `codex.svg` into this folder of the installed extension to show them. */
+/** Vendor logos are not bundled. Files named `claude.svg` / `codex.svg` placed here take precedence over the ones read from the vendor extensions. */
 export const LOGO_DIR = ['media', 'logos'] as const;
 /** Hosts the conversation webview in the Turnhuddle activity-bar container and mirrors the store into it. */
 export class ConversationViewProvider implements vscode.WebviewViewProvider {
@@ -32,12 +35,26 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
   }
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
+    // Logos: files the user put in media/logos/ win; otherwise the marks shipped with the user's own Claude Code and Codex
+    // extensions are shown from where they are installed. Turnhuddle itself bundles no vendor logos.
     const logoRoot = this.extensionUri && vscode.Uri.joinPath(this.extensionUri, ...LOGO_DIR);
-    view.webview.options = { enableScripts: true, localResourceRoots: logoRoot ? [logoRoot] : [] };
+    const roots: vscode.Uri[] = logoRoot ? [logoRoot] : [];
+    const files: Partial<Record<'claude' | 'codex', { light: string; dark: string }>> = {};
+    for (const agent of ['claude', 'codex'] as const) {
+      const own = logoRoot && vscode.Uri.joinPath(logoRoot, `${agent}.svg`).fsPath;
+      if (own && existsSync(own)) { files[agent] = { light: own, dark: own }; continue; }
+      if (!vscode.workspace.getConfiguration('turnhuddle').get<boolean>('vendorLogos', true)) continue;
+      const dir = vscode.extensions.getExtension(VENDOR_EXTENSIONS[agent])?.extensionPath ?? newestExtensionDir(agent, defaultExtensionRoots(homedir()));
+      const found = dir ? vendorLogoFiles(agent, dir) : undefined;
+      if (found && dir) { files[agent] = found; roots.push(vscode.Uri.joinPath(vscode.Uri.file(dir), 'resources')); }
+    }
+    view.webview.options = { enableScripts: true, localResourceRoots: roots };
     this.logos = {};
-    if (logoRoot) for (const agent of ['claude', 'codex'] as const) {
-      const file = vscode.Uri.joinPath(logoRoot, `${agent}.svg`);
-      if (existsSync(file.fsPath)) this.logos[agent] = view.webview.asWebviewUri(file).toString();
+    for (const agent of ['claude', 'codex'] as const) {
+      const f = files[agent];
+      if (!f) continue;
+      this.logos[agent] = view.webview.asWebviewUri(vscode.Uri.file(f.light)).toString();
+      this.logos[`${agent}Dark`] = view.webview.asWebviewUri(vscode.Uri.file(f.dark)).toString();
     }
     view.webview.html = renderPage(randomBytes(16).toString('hex'), view.webview.cspSource);
     view.webview.onDidReceiveMessage((message: { command?: string; text?: unknown; index?: unknown }) => {
@@ -45,7 +62,8 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
       else if (message?.command === 'send') void vscode.commands.executeCommand('turnhuddle.reply', { message: typeof message.text === 'string' ? message.text : undefined, source: 'sidebar' });
       else if (message?.command === 'cancel') void vscode.commands.executeCommand('turnhuddle.cancel');
       else if (message?.command === 'new') void vscode.commands.executeCommand('turnhuddle.clear');
-      else if (message?.command === 'history') void vscode.commands.executeCommand('turnhuddle.sessions.focus');
+      else if (message?.command === 'history') void vscode.commands.executeCommand('turnhuddle.history');
+      else if (message?.command === 'bookmark') void vscode.commands.executeCommand('turnhuddle.toggleBookmark');
       else if (message?.command === 'settings') void vscode.commands.executeCommand('workbench.action.openSettings', '@ext:turnhuddle.turnhuddle');
       else if (message?.command === 'copy') void this.copy(typeof message.index === 'number' ? message.index : -1);
     });
