@@ -189,9 +189,12 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
         const found = await vendorSessions(all);
         const age = (iso: string) => { const m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(iso).toLocaleDateString(); };
         type Item = vscode.QuickPickItem & { session?: VendorSession; toggle?: boolean };
-        const items: Item[] = found.map(session => ({ label: `$(${session.provider === 'claude' ? 'sparkle' : 'terminal'}) ${session.title}`, description: `${session.provider === 'claude' ? 'Claude Code' : 'Codex'} · ${age(session.updatedAt)}`, detail: `${session.cwd || '(folder unknown)'} · ${session.provider === 'claude' ? 'forks the session; the original stays untouched' : 'continues the thread in place'}`, session }));
+        const home = homedir();
+        const short = (title: string) => title.length > 72 ? `${title.slice(0, 71).trimEnd()}…` : title;
+        const folder = (cwd: string) => !cwd ? '' : cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
+        const items: Item[] = found.map(session => ({ label: `$(${session.provider === 'claude' ? 'sparkle' : 'terminal'}) ${short(session.title)}`, detail: [session.provider === 'claude' ? 'Claude Code' : 'Codex', age(session.updatedAt), all ? folder(session.cwd) : '', session.provider === 'claude' ? 'forks the session' : 'continues the thread'].filter(Boolean).join(' · '), session }));
         items.push({ label: all ? '$(folder) Only this folder’s sessions' : '$(folder-library) Show sessions from all folders', toggle: true, alwaysShow: true });
-        const picked = await vscode.window.showQuickPick(items, { title: 'Continue from a CLI session', placeHolder: found.length ? 'Pick the Claude Code or Codex session to continue in Turnhuddle' : 'No saved CLI sessions found for this folder', matchOnDescription: true, matchOnDetail: true, ignoreFocusOut: true });
+        const picked = await vscode.window.showQuickPick(items, { title: 'Continue from a CLI session', placeHolder: found.length ? 'Pick the Claude Code or Codex session to continue in Turnhuddle (Esc or click outside to close)' : 'No saved CLI sessions found for this folder', matchOnDescription: true, matchOnDetail: true, ignoreFocusOut: false });
         if (!picked) return { status: 'skipped', messages: [] };
         if (picked.toggle) { all = !all; continue; }
         origin = { provider: picked.session!.provider, sessionId: picked.session!.id, title: picked.session!.title };

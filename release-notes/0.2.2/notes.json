@@ -1,0 +1,16 @@
+{
+  "version": "0.2.2",
+  "date": "2026-11-26",
+  "headline": "Cleaner session picker",
+  "pill": "the session picker shows what you actually asked",
+  "summary": "Continuing a Claude Code or Codex session is easier: the picker shows the question you asked in each session instead of context the CLIs add behind the scenes, and it closes when you click elsewhere.",
+  "fixes": [
+    "Session titles no longer show IDE context such as `<ide_opened_file>` or CLI-added blocks; they show the first thing you typed, without Markdown symbols or stray backslashes.",
+    "The session picker closes when you click outside it or press Esc.",
+    "The Conversations view's empty message showed a literal `\\n`; its link is now a proper button."
+  ],
+  "improvements": [
+    "Each session in the picker shows its tool and age on one line, so long titles no longer push them out of view.",
+    "The Marketplace page now has screenshots and a full feature overview."
+  ]
+}

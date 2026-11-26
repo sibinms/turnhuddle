@@ -2,6 +2,17 @@
 
 All notable changes to Turnhuddle are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 0.2.2 — 2026-11-26
+
+### Fixed
+- Session picker titles show what you typed, not IDE context or CLI-added blocks, and no Markdown symbols or stray backslashes.
+- The session picker closes when you click outside it.
+- The Conversations view's empty message showed a literal `\n`.
+
+### Changed
+- Session picker rows show the tool and age on one line under the title.
+- The README, and so the Marketplace page, now shows screenshots and the full feature overview.
+
 ## 0.2.1 — 2026-11-26
 
 ### Added

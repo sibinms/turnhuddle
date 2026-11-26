@@ -12,6 +12,20 @@ export function clip(text: string, max = TITLE_CHARS): string {
   const clean = text.replace(/\s+/g, ' ').trim();
   return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
 }
+/** Text the CLIs inject before or around what the user typed: IDE context, reminders, slash-command records, environment blocks. */
+const INJECTED_BLOCK = /<(ide_[a-z_]+|system-reminder|command-[a-z-]+|local-command-[a-z-]+|environment_context|user_instructions|user-prompt-submit-hook|bash-[a-z-]+)\b[^>]*>[\s\S]*?(<\/\1>|$)/gi;
+/** A one-line title from a prompt: injected blocks removed, Markdown and escape characters dropped, whitespace collapsed. Empty when nothing the user typed is left. */
+export function cleanPrompt(text: string): string {
+  // Any <tag>…</tag> block is CLI-injected context (users don't type these); known tags are also dropped when left unclosed.
+  let t = text.replace(/<([a-z][a-z0-9_-]*)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ').replace(INJECTED_BLOCK, ' ');
+  if (/^\s*Caveat:/i.test(t)) return '';
+  t = t.replace(/\[([^\]]+)\]\((?:[^)]+)\)/g, '$1')          // [label](url) → label
+    .replace(/(\*\*|__|`)/g, '')                                  // bold markers and code ticks
+    .replace(/\\(\s|$)/g, ' ')                                   // markdown line-break backslashes
+    .replace(/\\([\\`*_{}\[\]()#+\-.!>])/g, '$1')            // escaped punctuation
+    .replace(/^#+\s+/gm, '');                                      // heading markers
+  return t.replace(/\s+/g, ' ').trim();
+}
 /** Claude Code keeps one folder per working directory, named from the path with every non-alphanumeric character replaced by "-". */
 export function claudeProjectDirName(cwd: string): string { return cwd.replace(/[^a-zA-Z0-9]/g, '-'); }
 async function readHeadAndTail(file: string): Promise<{ head: string; tail: string; bytes: number }> {
@@ -47,9 +61,9 @@ export function summariseClaudeTranscript(head: string, tail: string): { title: 
     if (typeof e.sessionId === 'string' && !id) id = e.sessionId;
     if (typeof e.cwd === 'string' && !cwd) cwd = e.cwd;
     const message = e.message as { role?: unknown; content?: unknown } | undefined;
-    if (!prompt && e.type === 'user' && message?.role === 'user' && !e.isSidechain) {
-      if (typeof message.content === 'string') prompt = message.content;
-      else if (Array.isArray(message.content)) { const text = message.content.find((c: { type?: unknown; text?: unknown }) => c?.type === 'text' && typeof c.text === 'string') as { text: string } | undefined; if (text) prompt = text.text; }
+    if (!prompt && e.type === 'user' && message?.role === 'user' && !e.isSidechain && !e.isMeta) {
+      const blocks = typeof message.content === 'string' ? [message.content] : Array.isArray(message.content) ? message.content.filter((c: { type?: unknown; text?: unknown }) => c?.type === 'text' && typeof c.text === 'string').map((c: { text: string }) => c.text) : [];
+      for (const block of blocks) { const cleaned = cleanPrompt(block); if (cleaned) { prompt = cleaned; break; } }
     }
   };
   for (const e of jsonLines(head)) consider(e);
@@ -63,10 +77,13 @@ export function summariseCodexRollout(head: string): { title: string; cwd: strin
     const payload = e.payload as Record<string, unknown> | undefined;
     if (e.type === 'session_meta' && payload) { if (typeof payload.id === 'string') id = payload.id; if (typeof payload.cwd === 'string') cwd = payload.cwd; if (typeof payload.timestamp === 'string') timestamp = payload.timestamp; }
     if (!title && e.type === 'response_item' && payload?.type === 'message' && payload.role === 'user' && Array.isArray(payload.content)) {
-      const text = (payload.content as { type?: unknown; text?: unknown }[]).find(c => (c?.type === 'input_text' || c?.type === 'text') && typeof c.text === 'string') as { text: string } | undefined;
-      if (text && !/^<environment_context>|^# AGENTS|^<user_instructions>/.test(text.text.trim())) title = text.text;
+      for (const c of payload.content as { type?: unknown; text?: unknown }[]) {
+        if ((c?.type !== 'input_text' && c?.type !== 'text') || typeof c.text !== 'string' || /^\s*# AGENTS/.test(c.text)) continue;
+        const cleaned = cleanPrompt(c.text);
+        if (cleaned) { title = cleaned; break; }
+      }
     }
-    if (!title && e.type === 'event_msg' && payload?.type === 'user_message' && typeof payload.message === 'string') title = payload.message;
+    if (!title && e.type === 'event_msg' && payload?.type === 'user_message' && typeof payload.message === 'string') title = cleanPrompt(payload.message);
   }
   return { title: clip(title) || '(no prompt recorded)', cwd, id, timestamp };
 }

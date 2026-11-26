@@ -2,7 +2,7 @@
   "name": "turnhuddle",
   "displayName": "Turnhuddle",
   "description": "Claude Code and Codex in one chat: Claude proposes, Codex reviews, and they keep going until both agree.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "turnhuddle",
   "license": "MIT",
   "repository": {
@@ -321,7 +321,7 @@
     "viewsWelcome": [
       {
         "view": "turnhuddle.sessions",
-        "contents": "No conversations yet. Type a task in the Chat view below to start one, or\\n[Continue from a Claude Code or Codex session](command:turnhuddle.continueFrom)."
+        "contents": "No conversations yet. Type a task in the Chat view below to start one.\n[Continue from a Claude Code or Codex Session](command:turnhuddle.continueFrom)"
       }
     ]
   },
