@@ -2,6 +2,19 @@
 
 All notable changes to Turnhuddle are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 0.2.1 — 2026-11-26
+
+### Added
+- **Check for updates**: once a day Turnhuddle asks GitHub for the latest release and offers to install a newer one, verifying the VSIX checksum first. **Turnhuddle: Check for Updates** runs it on demand; `turnhuddle.checkForUpdates` turns the daily check off.
+- Releases are published automatically from GitHub with Marketplace trusted publishing, each with a GitHub Release that includes the VSIX.
+- The website at https://sibinms.github.io/turnhuddle/ with release notes for every version.
+
+### Changed
+- A clearer Activity Bar icon.
+
+### Fixed
+- While Claude streams a list, the typing cursor stays at the end of the text instead of on a line of its own.
+
 ## 0.2.0 — 2026-11-25
 
 ### Added

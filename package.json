@@ -2,7 +2,7 @@
   "name": "turnhuddle",
   "displayName": "Turnhuddle",
   "description": "Claude Code and Codex in one chat: Claude proposes, Codex reviews, and they keep going until both agree.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "turnhuddle",
   "license": "MIT",
   "repository": {
