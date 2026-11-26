@@ -2,7 +2,7 @@
   "name": "turnhuddle",
   "displayName": "Turnhuddle",
   "description": "Claude Code, Codex and Gemini in one VS Code chat: pick any agent and model to draft, another to review, and they keep going until both agree.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "turnhuddle",
   "license": "MIT",
   "repository": {

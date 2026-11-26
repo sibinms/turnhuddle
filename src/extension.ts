@@ -8,6 +8,7 @@ import { conversationIdFrom, historyEntries, HistoryStore, SessionManager, Sessi
 import { agentAdapter, agentName, DEFAULT_SEATS, formatAgentSetting, parseAgentSetting, provider, PROVIDER_IDS, PROVIDERS, ProviderId, sameAgent, seatNames } from './providers';
 import { claudeModelLabel, discoverModels, ModelChoice } from './models';
 import { listVendorSessions, VendorSession } from './vendorSessions';
+import { registerLegacyViews } from './legacyView';
 import { CHAT_VIEW_PRIMARY, CHAT_VIEW_SECONDARY, ConversationViewProvider } from './sidebar';
 import { ThreadsView } from './threadsView';
 import { liveAdapter, LiveSession, SessionPool } from './live';
@@ -19,7 +20,7 @@ import { checkDue, checkForUpdate, downloadVsix, Fetcher, UpdateCheck } from './
 import { Agent, defaultExtensionRoots, EXTENSION_IDS, locate, Located, loginShellLookup, SOURCE_LABELS } from './cliLocator';
 /** Returned by `turnhuddle.start` and `turnhuddle.reply` so callers (keybindings, automation, tests) can inspect the outcome of the round they ran. */
 export type StartResult = { status: 'completed' | 'cancelled' | 'failed' | 'skipped'; id?: string; messages: Message[]; error?: string };
-/** `task`/`message` skip the input box; `source: 'sidebar'` means the chat panel sent it, so the Output channel is written to but not raised. */
+/** `task`/`message` skip the input box. Rounds never raise the Output channel or show progress popups; `source` is kept for callers. */
 export type StartOptions = { task?: string; source?: 'sidebar' };
 export type ReplyOptions = { message?: string; source?: 'sidebar'; id?: string };
 /** `provider` + `sessionId` skip the picker; `message` skips the input box; `all` lists sessions from every folder. */
@@ -88,6 +89,7 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
   if (!secondary) void vscode.commands.executeCommand('setContext', 'turnhuddle.noSecondarySidebar', true);
   const chatViews = [new ConversationViewProvider(sessions, { seats: seatsShown }, CHAT_VIEW_SECONDARY), new ConversationViewProvider(sessions, { seats: seatsShown }, CHAT_VIEW_PRIMARY)];
   for (const v of chatViews) v.register(context);
+  registerLegacyViews(context);
   /** The chat panel for this VS Code: whichever has been shown, else the one its layout uses. */
   const chatView = () => chatViews.find(v => v.resolved) ?? chatViews[secondary ? 0 : 1];
   const view = { reveal: () => chatView().reveal(), get resolved() { return chatView().resolved; }, get visible() { return chatView().visible; }, get logoSources() { return chatView().logoSources; } };
@@ -149,7 +151,7 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
           const error = `Cannot run ${cli.path}: no such file. Check turnhuddle.${def.id}Path, or clear it to find the ${def.product} CLI automatically.`;
           if (!conversationId) { conversationId = randomUUID(); sessions.create(conversationId, text, existing?.cwd && existsSync(existing.cwd) ? existing.cwd : folder.uri.fsPath, new Date(), origin, seats); }
           sessions.update(conversationId, state => finishConversation(receiveMessage(state, conversationId as string, { role: 'user', content: text }), 'failed', new Date(), error));
-          output.appendLine(error); if (source !== 'sidebar') void vscode.window.showErrorMessage(error);
+          output.appendLine(error);
           return { status: 'failed', id: conversationId, messages: [{ role: 'user', content: text }], error };
         }
         clis[seat] = cli;
@@ -206,20 +208,16 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
       running.set(conversationId, controller);
       let outcome: import('./bridge').RoundOutcome | undefined;
       syncRunning();
-      if (source !== 'sidebar') output.show(true);
       void view.reveal();
       try {
-        // Rounds started from the chat report no progress to VS Code at all: any progress indicator (popup or the view's bar)
-        // makes VS Code loop its progress sound when accessibility signals are on. The composer already shows the spinner,
-        // turn, timer and Stop, and announces the agent's status. Command Palette starts keep the cancellable popup.
-        const quiet = source === 'sidebar';
+        // Rounds report no progress to VS Code at all, however they were started: a progress popup interrupts, and any progress
+        // indicator makes VS Code loop its progress sound when accessibility signals are on. The chat shows the spinner, turn,
+        // timer and Stop, and announces the agent's status; the Output channel is written to but never raised.
         const silent = <T>(task: (progress: vscode.Progress<{ message?: string }>, token: vscode.CancellationToken) => Promise<T>) => {
           const never = new vscode.CancellationTokenSource();
           return task({ report: () => undefined }, never.token).finally(() => never.dispose());
         };
-        const withRoundProgress = quiet ? silent : <T>(task: (progress: vscode.Progress<{ message?: string }>, token: vscode.CancellationToken) => Promise<T>) =>
-          vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Turnhuddle', cancellable: true }, task);
-        await withRoundProgress(async (progress, token) => {
+        await silent(async (progress, token) => {
           const subscription = token.onCancellationRequested(() => controller.abort());
           try {
             const who = (role: Message['role']) => role === 'user' ? 'you' : names[role];
@@ -243,12 +241,10 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
         if (controller.signal.aborted) {
           sessions.update(thisId, state => finishConversation(state, 'cancelled', new Date(), text));
           output.appendLine('\nConversation cancelled. Later turns were not started.');
-          if (source !== 'sidebar') void vscode.window.showInformationMessage('Turnhuddle conversation cancelled.');
           return { status: 'cancelled', id: thisId, messages, error: text };
         }
         sessions.update(thisId, state => finishConversation(state, 'failed', new Date(), text));
         output.appendLine(`\n${text}`);
-        if (source !== 'sidebar') void vscode.window.showErrorMessage(text);
         return { status: 'failed', id: thisId, messages, error: text };
       } finally { if (running.get(thisId) === controller) running.delete(thisId); pool.release(thisId, 'drafter'); pool.release(thisId, 'reviewer'); syncRunning(); }
     } catch (error) {

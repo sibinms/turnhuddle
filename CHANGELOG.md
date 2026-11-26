@@ -2,6 +2,14 @@
 
 All notable changes to Turnhuddle are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 0.3.1 — 2026-11-26
+
+### Changed
+- Rounds are quiet however they start, including **Continue from Claude/Codex** and the Command Palette: no progress pop-up, no "cancelled" or error pop-ups, and the Output panel no longer opens. Progress, Stop and errors show in the chat; the Output channel is still written to.
+
+### Fixed
+- A window that was open when Turnhuddle updated from 0.2 kept the old layout, and its **Chat** pane loaded forever. It now says to reload the window and has a **Reload Window** button.
+
 ## 0.3.0 — 2026-11-26
 
 ### Added

@@ -1,0 +1,14 @@
+{
+  "version": "0.3.1",
+  "date": "2026-11-26",
+  "headline": "No more pop-ups or Output panel while agents work",
+  "pill": "quiet rounds and a reload prompt",
+  "summary": "Rounds no longer show a progress pop-up or open the Output panel, however they start. Everything shows in the chat. And a window still on the 0.2 layout after updating now says to reload instead of loading forever.",
+  "highlights": [],
+  "improvements": [
+    "Rounds started with **Continue from Claude/Codex** or the Command Palette are as quiet as ones started in the chat: no progress pop-up (and no progress sound with accessibility signals on), no cancelled or error pop-ups, and the Output panel stays closed."
+  ],
+  "fixes": [
+    "After updating from 0.2 without reloading, the old **Chat** pane no longer loads forever: it explains that the window needs a reload and has a **Reload Window** button."
+  ]
+}
