@@ -1,0 +1,34 @@
+name: Bug report
+description: Something in Turnhuddle doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Turnhuddle version
+      placeholder: "0.2.1"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: VS Code version and operating system
+      placeholder: "VS Code 1.106, macOS 15"
+  - type: input
+    id: clis
+    attributes:
+      label: CLI versions
+      description: The output of **Turnhuddle: Check CLI Installations**.
+  - type: textarea
+    id: output
+    attributes:
+      label: Turnhuddle Output channel
+      description: Relevant lines from View → Output → Turnhuddle. Remove anything private first.
+      render: text

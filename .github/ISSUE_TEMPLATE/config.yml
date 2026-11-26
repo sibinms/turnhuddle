@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Website and release notes
+    url: https://sibinms.github.io/turnhuddle/
+    about: How Turnhuddle works, and what's in each version.

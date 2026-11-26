@@ -1,0 +1,11 @@
+name: Idea or feature request
+description: Suggest something Turnhuddle could do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like Turnhuddle to do?
+      description: The problem it would solve for you, and how you'd use it.
+    validations:
+      required: true
