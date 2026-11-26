@@ -2,7 +2,7 @@
   "name": "turnhuddle",
   "displayName": "Turnhuddle",
   "description": "Claude Code and Codex in one chat: Claude proposes, Codex reviews, and they keep going until both agree.",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "publisher": "turnhuddle",
   "license": "MIT",
   "repository": {
@@ -163,7 +163,8 @@
           "type": "number",
           "default": 1048576,
           "minimum": 1024,
-          "maximum": 10485760
+          "maximum": 10485760,
+          "description": "Largest reply, in bytes, accepted from one agent turn. The CLIs' streamed tool output (files read, search results) isn't counted; a separate 64 MB cap stops a runaway process."
         },
         "turnhuddle.claudeEffort": {
           "type": "string",

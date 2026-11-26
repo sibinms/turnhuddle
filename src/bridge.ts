@@ -45,12 +45,27 @@ export function lineSplitter(onLine: (line: string) => void): { push(chunk: stri
     flush() { if (buffer.trim()) onLine(buffer); buffer = ''; }
   };
 }
-export interface RunOptions extends Limits { onStdout?: (text: string) => void }
+/** Streamed stdout carries every event the CLI reports (tool calls, file contents it read), not just the reply, so it gets
+ * its own, much larger safety cap; `maxBytes` then applies to the reply the adapters extract. */
+export const DEFAULT_STREAM_LIMIT_BYTES = 64 * 1024 * 1024;
+const STREAM_HEAD_BYTES = 4096;
+export interface RunOptions extends Limits {
+  /** Receives stdout as it arrives. When set, stdout is not kept in memory: run resolves with only its first few KB (for diagnostics). */
+  onStdout?: (text: string) => void;
+  /** Cap on all output while streaming. Default: the larger of 64 MiB and maxBytes. */
+  streamLimitBytes?: number;
+}
 export function run(executable: string, args: string[], input: string, options: RunOptions): Promise<string> {
   return new Promise((resolve, reject) => {
     if (options.signal?.aborted) { reject(new Error('Conversation cancelled.')); return; }
     const child = spawn(executable, args, { cwd: options.cwd, shell: false, detached: process.platform !== 'win32', stdio: 'pipe' });
     const chunks: Buffer[] = []; let bytes = 0; let stderrTail = Buffer.alloc(0); let failure: Error | undefined;
+    const streaming = !!options.onStdout;
+    const limit = streaming ? (options.streamLimitBytes ?? Math.max(DEFAULT_STREAM_LIMIT_BYTES, options.maxBytes)) : options.maxBytes;
+    const tooMuch = () => new Error(streaming
+      ? `${executable} produced more than ${Math.round(limit / (1024 * 1024))} MB of output in one turn and was stopped.`
+      : `${executable} output exceeded the configured limit of ${options.maxBytes} bytes.`);
+    let head = '';
     const stop = (error: Error) => {
       if (failure) return;
       failure = error;
@@ -64,12 +79,13 @@ export function run(executable: string, args: string[], input: string, options: 
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
       bytes += Buffer.byteLength(chunk);
-      if (bytes > options.maxBytes) stop(new Error(`${executable} output exceeded the configured limit of ${options.maxBytes} bytes.`));
-      else { chunks.push(Buffer.from(chunk, 'utf8')); if (!failure) options.onStdout?.(chunk); }
+      if (bytes > limit) stop(tooMuch());
+      else if (streaming) { if (head.length < STREAM_HEAD_BYTES) head += chunk.slice(0, STREAM_HEAD_BYTES - head.length); if (!failure) options.onStdout?.(chunk); }
+      else chunks.push(Buffer.from(chunk, 'utf8'));
     });
     child.stderr.on('data', (chunk: Buffer) => {
       bytes += chunk.length;
-      if (bytes > options.maxBytes) stop(new Error(`${executable} output exceeded the configured limit of ${options.maxBytes} bytes.`));
+      if (bytes > limit) stop(tooMuch());
       else stderrTail = Buffer.concat([stderrTail, chunk]).subarray(-STDERR_TAIL_BYTES);
     });
     child.on('error', error => { cleanup(); reject(new Error(`Cannot run ${executable}: ${error.message}`)); });
@@ -81,7 +97,7 @@ export function run(executable: string, args: string[], input: string, options: 
         const how = code === null ? `was stopped by signal ${signal}` : `exited with code ${code}`;
         reject(new Error(`${executable} ${how}. Check CLI authentication in a terminal.${detail ? ` Last output: ${detail}` : ''}`));
       }
-      else resolve(Buffer.concat(chunks).toString('utf8').trim());
+      else resolve(streaming ? head.trim() : Buffer.concat(chunks).toString('utf8').trim());
     });
     child.stdin.on('error', error => { if ((error as NodeJS.ErrnoException).code !== 'EPIPE') stop(error); });
     child.stdin.end(input);
@@ -138,6 +154,12 @@ export function parseClaudeResult(raw: string): string {
   if (typeof result.result !== 'string') throw new Error(`Claude returned no result text${typeof result.subtype === 'string' ? ` (${result.subtype})` : ''}.`);
   return result.result;
 }
+/** The configured limit applies to the reply an agent gives, not to the CLI's whole event stream. */
+export function checkReplySize(agent: string, reply: string, maxBytes: number): string {
+  const size = Buffer.byteLength(reply);
+  if (size > maxBytes) throw new Error(`${agent}'s reply is ${size} bytes, more than the configured limit of ${maxBytes} bytes (turnhuddle.maxOutputBytes).`);
+  return reply;
+}
 export function claudeAdapter(executable: string, limits: Limits, effort: Effort = 'inherit', session?: SessionProvider): Adapter {
   return async (prompt, onProgress) => {
     const options = session?.();
@@ -153,8 +175,8 @@ export function claudeAdapter(executable: string, limits: Limits, effort: Effort
     const raw = await run(executable, claudeArgs(effort, options), prompt, { ...limits, onStdout: chunk => lines.push(chunk) });
     lines.flush();
     if (error) throw new Error(error);
-    if (result !== undefined) return result;
-    if (streamed.trim()) return streamed;
+    if (result !== undefined) return checkReplySize('Claude', result, limits.maxBytes);
+    if (streamed.trim()) return checkReplySize('Claude', streamed, limits.maxBytes);
     throw new Error(`Claude returned no result. Output began: ${summarize(raw, 200, 'start') || '(empty)'}`);
   };
 }
@@ -173,7 +195,7 @@ export function codexAdapter(executable: string, limits: Limits, effort: string 
     const raw = await run(executable, codexArgs(effort, options), prompt, { ...limits, onStdout: chunk => lines.push(chunk) });
     lines.flush();
     if (error && !messages.length) throw new Error(error);
-    if (messages.length) return messages.join('\n\n');
+    if (messages.length) return checkReplySize('Codex', messages.join('\n\n'), limits.maxBytes);
     throw new Error(`Codex returned no message. Output began: ${summarize(raw, 200, 'start') || '(empty)'}`);
   };
 }

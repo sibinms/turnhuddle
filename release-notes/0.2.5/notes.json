@@ -1,0 +1,15 @@
+{
+  "version": "0.2.5",
+  "date": "2026-11-26",
+  "headline": "Quieter rounds, and no more output-limit errors",
+  "pill": "no more popups while the agents work",
+  "summary": "Conversations you start from the chat no longer pop up a notification for every turn, and Claude no longer stops with an \"output exceeded the configured limit\" error when it reads large files.",
+  "improvements": [
+    "No progress popup, and no notification sound, while a round started from the chat runs. Stop it from the composer as before.",
+    "Cancelled and failed rounds are shown in the chat only, without an extra popup.",
+    "Rounds started from the Command Palette keep the progress popup and its Cancel button."
+  ],
+  "fixes": [
+    "Claude stopped with **output exceeded the configured limit of 1048576 bytes** when it read large files or searched a big codebase: everything it read counted against the limit. The limit now applies to the reply only; a separate 64 MB cap still stops a runaway process."
+  ]
+}

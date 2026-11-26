@@ -263,3 +263,23 @@ test('fixed mode is unchanged and reports a fixed outcome', async () => {
   assert.equal(r.history[1].content, 'Proposal\nVERDICT: AGREE', 'fixed mode does not parse verdicts'); assert.equal(r.history[1].verdict, undefined);
   assert.match(agreementInstruction('codex', [{ role: 'user', content: 't' }]), /^Analyse the user’s message/);
 });
+const { checkReplySize, DEFAULT_STREAM_LIMIT_BYTES } = require('../dist/bridge');
+test('streamed tool output does not count against the reply limit; the reply itself does', async () => {
+  // 3 MB of tool-result events, then a short reply: fine with a 1 MB reply limit.
+  const big = JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: 'x'.repeat(100000) }] } });
+  const cli = fakeCli(`cat >/dev/null\ni=0; while [ $i -lt 30 ]; do printf '%s\\n' '${big}'; i=$((i+1)); done\nprintf '%s\\n' '${claudeLines[6]}'`);
+  assert.equal(await claudeAdapter(cli, { ...limits, maxBytes: 1048576, timeoutMs: 20000 })('p'), 'Proposal');
+  // A reply over the limit is refused with a clear message.
+  const long = JSON.stringify({ type: 'result', is_error: false, result: 'y'.repeat(5000) });
+  await assert.rejects(claudeAdapter(fakeCli(`cat >/dev/null; printf '%s\\n' '${long}'`), { ...limits, maxBytes: 4096 })('p'), /Claude's reply is 5000 bytes, more than the configured limit of 4096 bytes/);
+  const codexLong = JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'z'.repeat(5000) } });
+  await assert.rejects(codexAdapter(fakeCli(`cat >/dev/null; printf '%s\\n' '${codexLong}'`), { ...limits, maxBytes: 4096 })('p'), /Codex's reply is 5000 bytes/);
+  assert.equal(checkReplySize('Claude', 'ok', 10), 'ok');
+  assert.equal(DEFAULT_STREAM_LIMIT_BYTES, 64 * 1024 * 1024);
+});
+test('the stream still has a safety cap, and streaming runs return only the start of stdout', async () => {
+  const chunks = [];
+  await assert.rejects(run(process.execPath, ['-e', 'process.stdout.write("a".repeat(300000))'], '', { ...limits, maxBytes: 1024, streamLimitBytes: 100000, onStdout: c => chunks.push(c) }), /produced more than 0 MB of output in one turn and was stopped/);
+  const head = await run(process.execPath, ['-e', 'process.stdout.write("b".repeat(50000))'], '', { ...limits, maxBytes: 1024, onStdout: () => {} });
+  assert.equal(head.length, 4096, 'only the first 4 KB is kept');
+});

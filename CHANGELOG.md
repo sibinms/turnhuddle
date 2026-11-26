@@ -2,6 +2,14 @@
 
 All notable changes to Turnhuddle are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 0.2.5 — 2026-11-26
+
+### Fixed
+- "output exceeded the configured limit of 1048576 bytes" when Claude read large files: `turnhuddle.maxOutputBytes` now limits the reply, not the CLI's whole event stream, which has its own 64 MB cap.
+
+### Changed
+- Rounds started from the chat show progress as the view's progress bar instead of a notification, so there are no popups or notification sounds while the agents work. Cancelled and failed rounds are reported in the chat only. Command Palette starts keep the popup.
+
 ## 0.2.4 — 2026-11-26
 
 ### Added

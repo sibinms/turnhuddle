@@ -113,7 +113,11 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
       if (source !== 'sidebar') output.show(true);
       void view.reveal();
       try {
-        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Turnhuddle', cancellable: true }, async (progress, token) => {
+        // Rounds started from the chat show progress only as the view's own progress bar: no popup, no notification sound.
+        // The composer already shows the turn, the timer and Stop. Command Palette starts keep the cancellable popup.
+        const quiet = source === 'sidebar';
+        const where: vscode.ProgressOptions = quiet ? { location: { viewId: 'turnhuddle.conversation' } } : { location: vscode.ProgressLocation.Notification, title: 'Turnhuddle', cancellable: true };
+        await vscode.window.withProgress(where, async (progress, token) => {
           const subscription = token.onCancellationRequested(() => controller.abort());
           try {
             const result = await relay(target, text, {
@@ -139,12 +143,12 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
         if (controller.signal.aborted) {
           sessions.update(thisId, state => finishConversation(state, 'cancelled', new Date(), text));
           output.appendLine('\nConversation cancelled. Later turns were not started.');
-          void vscode.window.showInformationMessage('Turnhuddle conversation cancelled.');
+          if (source !== 'sidebar') void vscode.window.showInformationMessage('Turnhuddle conversation cancelled.');
           return { status: 'cancelled', id: thisId, messages, error: text };
         }
         sessions.update(thisId, state => finishConversation(state, 'failed', new Date(), text));
         output.appendLine(`\n${text}`);
-        void vscode.window.showErrorMessage(text);
+        if (source !== 'sidebar') void vscode.window.showErrorMessage(text);
         return { status: 'failed', id: thisId, messages, error: text };
       } finally { if (running.get(thisId) === controller) running.delete(thisId); syncRunning(); }
     } catch (error) {
