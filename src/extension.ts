@@ -110,11 +110,17 @@ export function activate(context: vscode.ExtensionContext): TurnhuddleApi {
       if (source !== 'sidebar') output.show(true);
       void view.reveal();
       try {
-        // Rounds started from the chat show progress only as the view's own progress bar: no popup, no notification sound.
-        // The composer already shows the turn, the timer and Stop. Command Palette starts keep the cancellable popup.
+        // Rounds started from the chat report no progress to VS Code at all: any progress indicator (popup or the view's bar)
+        // makes VS Code loop its progress sound when accessibility signals are on. The composer already shows the spinner,
+        // turn, timer and Stop, and announces the agent's status. Command Palette starts keep the cancellable popup.
         const quiet = source === 'sidebar';
-        const where: vscode.ProgressOptions = quiet ? { location: { viewId: 'turnhuddle.conversation' } } : { location: vscode.ProgressLocation.Notification, title: 'Turnhuddle', cancellable: true };
-        await vscode.window.withProgress(where, async (progress, token) => {
+        const silent = <T>(task: (progress: vscode.Progress<{ message?: string }>, token: vscode.CancellationToken) => Promise<T>) => {
+          const never = new vscode.CancellationTokenSource();
+          return task({ report: () => undefined }, never.token).finally(() => never.dispose());
+        };
+        const withRoundProgress = quiet ? silent : <T>(task: (progress: vscode.Progress<{ message?: string }>, token: vscode.CancellationToken) => Promise<T>) =>
+          vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Turnhuddle', cancellable: true }, task);
+        await withRoundProgress(async (progress, token) => {
           const subscription = token.onCancellationRequested(() => controller.abort());
           try {
             const result = await relay(target, text, {

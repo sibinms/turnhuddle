@@ -1,9 +1,9 @@
 {
   "version": "0.2.6",
   "date": "2026-11-26",
-  "headline": "One chat window, like Claude Code",
+  "headline": "One chat window like Claude Code, and silence while the agents think",
   "pill": "one chat window, with everything else in the history",
-  "summary": "Turnhuddle is now a single chat window, as in Claude Code. The separate Conversations list is gone: your past conversations live in the history behind the clock, where you can bookmark, archive and restore them.",
+  "summary": "Turnhuddle is now a single chat window, as in Claude Code, with past conversations in the history behind the clock. And the sound some people heard while Claude was thinking is gone.",
   "highlights": [
     {
       "tag": "Changed",
@@ -15,5 +15,8 @@
   ],
   "improvements": [
     "The Turnhuddle sidebar has just the chat; the duplicate New and Stop icons in the view's title bar are gone, since the chat header and composer have them."
+  ],
+  "fixes": [
+    "With VS Code's accessibility signals on (for example when `editor.accessibilitySupport` is `on`), a progress sound looped while an agent was thinking. Rounds started from the chat no longer show a VS Code progress indicator, so the sound doesn't play; the composer still shows the spinner, turn and timer."
   ]
 }

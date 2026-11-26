@@ -4,6 +4,9 @@ All notable changes to Turnhuddle are listed here. Versions follow [Semantic Ver
 
 ## 0.2.6 — 2026-11-26
 
+### Fixed
+- A progress sound looped while an agent was thinking when VS Code's accessibility signals were on. Chat-started rounds no longer show a VS Code progress indicator.
+
 ### Changed
 - A single chat window, like Claude Code: the Conversations view is removed and past conversations live in the history (the clock), with Bookmark and Archive buttons on each row and Show archived to restore.
 - The view title bar no longer repeats the New and Stop actions.
