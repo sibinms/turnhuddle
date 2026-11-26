@@ -1,16 +1,27 @@
 {
   "version": "0.2.2",
   "date": "2026-11-26",
-  "headline": "Cleaner session picker",
+  "headline": "A session picker that shows what you asked",
   "pill": "the session picker shows what you actually asked",
-  "summary": "Continuing a Claude Code or Codex session is easier: the picker shows the question you asked in each session instead of context the CLIs add behind the scenes, and it closes when you click elsewhere.",
-  "fixes": [
-    "Session titles no longer show IDE context such as `<ide_opened_file>` or CLI-added blocks; they show the first thing you typed, without Markdown symbols or stray backslashes.",
-    "The session picker closes when you click outside it or press Esc.",
-    "The Conversations view's empty message showed a literal `\\n`; its link is now a proper button."
+  "summary": "Continuing a Claude Code or Codex session is easier. Each session in the picker is titled with the question you asked, not context the CLIs add behind the scenes, and the picker closes when you click away.",
+  "highlights": [
+    {
+      "tag": "Fixed",
+      "title": "Titles you recognise",
+      "text": "Claude Code and Codex quietly record extra context before your first message, such as which file was open in your editor. The picker used to show that. Now it skips it and shows the first thing you typed, without Markdown symbols or stray backslashes. The tool, its age and what happens when you pick it sit on one line underneath, so long titles no longer hide them. Press **Esc** or click anywhere outside to close the picker.",
+      "image": "continue",
+      "alt": "The session picker listing four sessions titled with the questions asked, each with Claude Code or Codex and its age underneath"
+    },
+    {
+      "tag": "Fixed",
+      "title": "A proper button when there are no conversations yet",
+      "text": "The empty Conversations view showed a stray `\\n` in its message. It now reads cleanly, with a **Continue from a Claude Code or Codex Session** button underneath.",
+      "image": "empty",
+      "alt": "The empty Conversations view with a short message and a blue Continue from a Claude Code or Codex Session button",
+      "size": "compact"
+    }
   ],
   "improvements": [
-    "Each session in the picker shows its tool and age on one line, so long titles no longer push them out of view.",
-    "The Marketplace page now has screenshots and a full feature overview."
+    "The Marketplace page now has screenshots and a full overview of what Turnhuddle does."
   ]
 }

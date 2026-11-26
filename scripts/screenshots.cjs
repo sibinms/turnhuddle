@@ -132,17 +132,23 @@ function conversationsTree(t, items) {
   ${items.map(it => `<div class="row${it.open ? ' open' : ''}">${icon[it.status]}<span class="t">${it.title}</span><span class="d">${it.desc}</span></div>`).join('')}`;
 }
 function quickPick(t) {
+  // Same layout as the extension's picker: the first thing you asked as the title, tool · age · what happens on the line below.
   const rows = [
-    ['sparkle', 'Payment webhook retries', 'Claude Code · 2 h ago', '~/work/payments-api · forks the session; the original stays untouched', true],
-    ['terminal', 'Investigate flaky checkout test', 'Codex · yesterday', '~/work/payments-api · continues the thread in place', false],
-    ['sparkle', 'Migrate invoices table to UUID keys', 'Claude Code · 3 days ago', '~/work/payments-api · forks the session; the original stays untouched', false],
-    ['folder', 'Show sessions from all folders', '', '', false]
+    ['sparkle', 'Can you check why the payment webhook retries twice after a timeout?', 'Claude Code · 2 h ago · forks the session', true],
+    ['terminal', 'Investigate the flaky checkout test in CI and suggest a fix', 'Codex · yesterday · continues the thread', false],
+    ['sparkle', 'Plan the migration of the invoices table to UUID keys', 'Claude Code · 3 days ago · forks the session', false],
+    ['sparkle', 'Review this PR and list anything that could break refunds', 'Claude Code · 4 days ago · forks the session', false],
+    ['folder', 'Show sessions from all folders', '', false]
   ];
   const glyph = { sparkle: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>', terminal: '<path d="m5 8 4 4-4 4M12 17h7"/>', folder: '<path d="M3 7h6l2 2h10v10H3z"/>' };
-  return `<div class="qp"><div class="qp-title">Continue from a CLI session</div><div class="qp-input">Pick the Claude Code or Codex session to continue in Turnhuddle</div>
-  ${rows.map(([g, title, desc, detail, sel]) => `<div class="qp-row${sel ? ' sel' : ''}">${svg(glyph[g], 16)}<div><div><b>${title}</b> <span class="qp-desc">${desc}</span></div>${detail ? `<div class="qp-detail">${detail}</div>` : ''}</div></div>`).join('')}</div>`;
+  return `<div class="qp"><div class="qp-title">Continue from a CLI session</div><div class="qp-input">Pick the Claude Code or Codex session to continue in Turnhuddle (Esc or click outside to close)</div>
+  ${rows.map(([g, title, detail, sel]) => `<div class="qp-row${sel ? ' sel' : ''}">${svg(glyph[g], 16)}<div><div>${title}</div>${detail ? `<div class="qp-detail">${detail}</div>` : ''}</div></div>`).join('')}</div>`;
 }
-function windowPage(theme, panelFile, { tree, overlay, title = 'payments-api' } = {}) {
+function emptyConversations(t, v) {
+  return `<div class="sec"><span>${svg('<path d="m6 9 6 6 6-6"/>', 12, 2.4)}</span>CONVERSATIONS</div>
+  <div class="welcome-view"><p>No conversations yet. Type a task in the Chat view below to start one.</p><div class="welcome-btn" style="background:${v['button-background']};color:${v['button-foreground']}">Continue from a Claude Code or Codex Session</div></div>`;
+}
+function windowPage(theme, panelFile, { tree, overlay, title = 'payments-api', empty } = {}) {
   const t = THEMES[theme].chrome, v = THEMES[theme].vars;
   return `<!doctype html><html><head><meta charset="utf-8"><style>
   *{box-sizing:border-box} html,body{margin:0;width:${W}px;height:${H}px;overflow:hidden;font:13px -apple-system,"Segoe UI",sans-serif;color:${t.text};background:${t.editor}}
@@ -161,6 +167,8 @@ function windowPage(theme, panelFile, { tree, overlay, title = 'payments-api' } 
   .row{height:24px;display:flex;align-items:center;gap:7px;padding:0 10px 0 22px;white-space:nowrap}
   .row .t{overflow:hidden;text-overflow:ellipsis;max-width:280px}.row .d{color:${v.descriptionForeground};font-size:12px;overflow:hidden;text-overflow:ellipsis}
   .row.open{background:${t.quickSel}}
+  .welcome-view{padding:6px 20px 16px;font-size:13px}.welcome-view p{margin:0 0 12px;color:${t.text}}
+  .welcome-btn{border-radius:4px;padding:6px 10px;text-align:center}
   .chat{flex:1;display:flex;flex-direction:column;min-height:0}
   iframe{flex:1;border:0;width:100%;min-height:0;display:block;background:${v['sideBar-background']}}
   .main{display:flex;flex-direction:column;min-width:0;position:relative}
@@ -168,7 +176,7 @@ function windowPage(theme, panelFile, { tree, overlay, title = 'payments-api' } 
   .tab{display:flex;align-items:center;gap:6px;padding:0 14px;color:${v.descriptionForeground};border-right:1px solid ${t.border}}
   .tab.on{background:${t.tabActive};color:${t.text};border-top:1px solid ${v.focusBorder}}
   .code{padding:10px 0;font:13.5px/21px "SF Mono",Menlo,monospace}
-  .ln{display:flex;white-space:pre}.ln i{font-style:normal;width:56px;text-align:right;padding-right:22px;color:${t.gutter}}
+  .ln{display:flex;white-space:pre}.ln i{flex:none;font-style:normal;width:56px;text-align:right;padding-right:22px;color:${t.gutter}}
   .status{background:${t.status};border-top:1px solid ${t.border};color:${t.statusFg};display:flex;align-items:center;gap:16px;padding:0 12px;font-size:12px}
   .status .th{display:inline-flex;align-items:center;gap:5px}
   .qp{position:absolute;top:44px;left:50%;transform:translateX(-50%);width:600px;background:${t.quick};border:1px solid ${t.border};border-radius:8px;box-shadow:0 8px 28px ${t.shadow};padding:6px;z-index:5}
@@ -183,7 +191,7 @@ function windowPage(theme, panelFile, { tree, overlay, title = 'payments-api' } 
   <div class="title"><i></i><i></i><i></i><span>auth.ts — ${title}</span></div>
   <div class="body">
     <div class="act"><div>${svg(ICON.files)}</div><div>${svg(ICON.search)}</div><div>${svg(ICON.git)}</div><div>${svg(ICON.run)}</div><div>${svg(ICON.ext)}</div><div class="on">${svg(ICON.turnhuddle, 24, 1.8)}</div></div>
-    <div class="side"><div class="side-h">TURNHUDDLE</div>${tree ? conversationsTree(t, tree) : ''}<div class="sec" style="border-top:1px solid ${t.border}"><span>${svg('<path d="m6 9 6 6 6-6"/>', 12, 2.4)}</span>CHAT</div><div class="chat"><iframe src="${panelFile}"></iframe></div></div>
+    <div class="side"><div class="side-h">TURNHUDDLE</div>${empty ? emptyConversations(t, v) : tree ? conversationsTree(t, tree) : ''}<div class="sec" style="border-top:1px solid ${t.border}"><span>${svg('<path d="m6 9 6 6 6-6"/>', 12, 2.4)}</span>CHAT</div><div class="chat"><iframe src="${panelFile}"></iframe></div></div>
     <div class="main">${editor(t)}</div>
   </div>
   ${overlay || ''}
@@ -203,7 +211,8 @@ const SCENES = {
   streaming: { state: streamingConversation, opts: {} },
   history: { state: continuedConversation, opts: { tree: TREE } },
   continue: { state: () => view.initialState(), opts: { tree: TREE.slice(1), overlay: quickPick } },
-  welcome: { state: () => view.initialState(), opts: {} }
+  welcome: { state: () => view.initialState(), opts: {} },
+  empty: { state: () => view.initialState(), opts: { empty: true } }
 };
 
 fs.rmSync(WORK, { recursive: true, force: true });
