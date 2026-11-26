@@ -5,3 +5,9 @@ test/**
 tsconfig.json
 *.vsix
 artifacts/**
+site/**
+release-notes/**
+scripts/**
+.github/**
+.claude/**
+.screenshots/**
